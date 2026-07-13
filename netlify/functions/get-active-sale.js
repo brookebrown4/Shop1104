@@ -31,7 +31,7 @@ exports.handler = async (event) => {
 
   const { data: products, error: prodErr } = await supabase
     .from("products")
-    .select("id, name, price_cents")
+    .select("id, name, price_cents, colors")
     .eq("sale_id", sale.id)
     .order("sort_order", { ascending: true });
 
