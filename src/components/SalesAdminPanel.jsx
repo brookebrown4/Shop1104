@@ -41,9 +41,11 @@ export default function SalesAdminPanel() {
 
   const [newProductName, setNewProductName] = useState("");
   const [newProductPrice, setNewProductPrice] = useState("");
+  const [newProductColors, setNewProductColors] = useState("");
   const [editingProductId, setEditingProductId] = useState(null);
   const [editName, setEditName] = useState("");
   const [editPrice, setEditPrice] = useState("");
+  const [editColors, setEditColors] = useState("");
 
   const selectedSale = sales.find((s) => s.id === selectedSaleId) || null;
 
@@ -112,24 +114,27 @@ export default function SalesAdminPanel() {
     if (!newProductName.trim() || !newProductPrice) return;
     const priceCents = Math.round(parseFloat(newProductPrice) * 100);
     if (!Number.isFinite(priceCents) || priceCents <= 0) return;
+    const colors = newProductColors.split(",").map((c) => c.trim()).filter(Boolean);
     const res = await fetch("/.netlify/functions/admin-products", {
       method: "POST", headers: authHeaders(adminCode),
-      body: JSON.stringify({ action: "create", saleId: selectedSaleId, name: newProductName.trim(), priceCents }),
+      body: JSON.stringify({ action: "create", saleId: selectedSaleId, name: newProductName.trim(), priceCents, colors }),
     });
-    if (res.ok) { setNewProductName(""); setNewProductPrice(""); await loadProducts(selectedSaleId, adminCode); }
+    if (res.ok) { setNewProductName(""); setNewProductPrice(""); setNewProductColors(""); await loadProducts(selectedSaleId, adminCode); }
   };
 
   const startEdit = (product) => {
     setEditingProductId(product.id);
     setEditName(product.name);
     setEditPrice((product.price_cents / 100).toFixed(2));
+    setEditColors((product.colors || []).join(", "));
   };
 
   const saveEdit = async (productId) => {
     const priceCents = Math.round(parseFloat(editPrice) * 100);
+    const colors = editColors.split(",").map((c) => c.trim()).filter(Boolean);
     const res = await fetch("/.netlify/functions/admin-products", {
       method: "POST", headers: authHeaders(adminCode),
-      body: JSON.stringify({ action: "update", productId, name: editName.trim(), priceCents }),
+      body: JSON.stringify({ action: "update", productId, name: editName.trim(), priceCents, colors }),
     });
     if (res.ok) { setEditingProductId(null); await loadProducts(selectedSaleId, adminCode); }
   };
@@ -208,9 +213,10 @@ export default function SalesAdminPanel() {
                 {products.map((p) => (
                   <div key={p.id} style={{ borderRadius: 10, padding: ".75rem", display: "flex", alignItems: "center", justifyContent: "space-between", background: COLORS.card, border: `1px solid ${COLORS.line}` }}>
                     {editingProductId === p.id ? (
-                      <div style={{ display: "flex", alignItems: "center", gap: ".5rem", flex: 1 }}>
-                        <input type="text" value={editName} onChange={(e) => setEditName(e.target.value)} style={{ ...inputStyle, flex: 1 }} />
-                        <input type="number" step="0.01" value={editPrice} onChange={(e) => setEditPrice(e.target.value)} style={{ ...inputStyle, width: 100 }} />
+                      <div style={{ display: "flex", alignItems: "center", gap: ".5rem", flex: 1, flexWrap: "wrap" }}>
+                        <input type="text" value={editName} onChange={(e) => setEditName(e.target.value)} style={{ ...inputStyle, flex: 1, minWidth: 120 }} />
+                        <input type="number" step="0.01" value={editPrice} onChange={(e) => setEditPrice(e.target.value)} style={{ ...inputStyle, width: 90 }} />
+                        <input type="text" value={editColors} onChange={(e) => setEditColors(e.target.value)} placeholder="Colors, comma separated" style={{ ...inputStyle, flex: 1, minWidth: 160 }} />
                         <button onClick={() => saveEdit(p.id)} style={{ background: "none", border: "none", color: COLORS.green, cursor: "pointer", fontSize: "1.1rem" }}>✓</button>
                         <button onClick={() => setEditingProductId(null)} style={{ background: "none", border: "none", color: COLORS.inkSoft, cursor: "pointer", fontSize: "1.1rem" }}>✕</button>
                       </div>
@@ -219,6 +225,9 @@ export default function SalesAdminPanel() {
                         <div>
                           <p style={{ fontSize: ".9rem", color: COLORS.ink }}>{p.name}</p>
                           <p style={{ fontSize: ".8rem", color: COLORS.gold }}>${(p.price_cents / 100).toFixed(2)}</p>
+                          {p.colors && p.colors.length > 0 && (
+                            <p style={{ fontSize: ".75rem", color: COLORS.inkSoft, marginTop: ".2rem" }}>Colors: {p.colors.join(", ")}</p>
+                          )}
                         </div>
                         <div style={{ display: "flex", gap: ".75rem" }}>
                           <button onClick={() => startEdit(p)} style={{ background: "none", border: "none", color: COLORS.inkSoft, cursor: "pointer" }}>Edit</button>
@@ -231,11 +240,15 @@ export default function SalesAdminPanel() {
                 {products.length === 0 && <p style={{ fontSize: ".8rem", color: COLORS.inkSoft }}>No items yet — add one below.</p>}
               </div>
 
-              <div style={{ display: "flex", gap: ".5rem" }}>
-                <input type="text" value={newProductName} onChange={(e) => setNewProductName(e.target.value)} placeholder="Item name (e.g. Tee — Indianola Logo)" style={{ ...inputStyle, flex: 1 }} />
-                <input type="number" step="0.01" value={newProductPrice} onChange={(e) => setNewProductPrice(e.target.value)} placeholder="Price" style={{ ...inputStyle, width: 100 }} />
+              <div style={{ display: "flex", gap: ".5rem", flexWrap: "wrap" }}>
+                <input type="text" value={newProductName} onChange={(e) => setNewProductName(e.target.value)} placeholder="Item name (e.g. Tee — Indianola Logo)" style={{ ...inputStyle, flex: 1, minWidth: 200 }} />
+                <input type="number" step="0.01" value={newProductPrice} onChange={(e) => setNewProductPrice(e.target.value)} placeholder="Price" style={{ ...inputStyle, width: 90 }} />
+                <input type="text" value={newProductColors} onChange={(e) => setNewProductColors(e.target.value)} placeholder="Colors (e.g. Black, Navy, Heather Gray)" style={{ ...inputStyle, flex: 1, minWidth: 220 }} />
                 <button onClick={createProduct} style={buttonPrimary}>+</button>
               </div>
+              <p style={{ fontSize: ".72rem", color: COLORS.inkSoft, marginTop: ".5rem" }}>
+                Leave colors blank if this item doesn't need a color choice.
+              </p>
             </>
           ) : (
             <p style={{ fontSize: ".9rem", color: COLORS.inkSoft }}>Select or create a sale to manage its items.</p>
