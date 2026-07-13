@@ -54,23 +54,53 @@ exports.handler = async (event) => {
 
   const siteUrl = process.env.URL || "http://localhost:8888";
 
+  const taxRatePercent = Number(process.env.TAX_RATE_PERCENT || 0);
+  const feeRatePercent = Number(process.env.PROCESSING_FEE_PERCENT || 0);
+  const subtotalCents = [...grouped.values()].reduce((sum, item) => sum + item.unit_amount * item.quantity, 0);
+  const taxCents = Math.round((subtotalCents * taxRatePercent) / 100);
+  const feeCents = Math.round((subtotalCents * feeRatePercent) / 100);
+
+  const lineItems = [...grouped.values()].map((item) => ({
+    price_data: {
+      currency: "usd",
+      product_data: {
+        name: item.name,
+        description: "Shop 1104 pre-order. Shipping (if applicable) billed separately.",
+      },
+      unit_amount: item.unit_amount,
+    },
+    quantity: item.quantity,
+  }));
+
+  if (taxCents > 0) {
+    lineItems.push({
+      price_data: {
+        currency: "usd",
+        product_data: { name: `Sales Tax (${taxRatePercent}%)` },
+        unit_amount: taxCents,
+      },
+      quantity: 1,
+    });
+  }
+
+  if (feeCents > 0) {
+    lineItems.push({
+      price_data: {
+        currency: "usd",
+        product_data: { name: `Card Processing Fee (${feeRatePercent}%)` },
+        unit_amount: feeCents,
+      },
+      quantity: 1,
+    });
+  }
+
   try {
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       payment_method_types: ["card"],
       client_reference_id: orderId,
       customer_email: order.customer_email,
-      line_items: [...grouped.values()].map((item) => ({
-        price_data: {
-          currency: "usd",
-          product_data: {
-            name: item.name,
-            description: "Shop 1104 pre-order. Tax and shipping billed separately.",
-          },
-          unit_amount: item.unit_amount,
-        },
-        quantity: item.quantity,
-      })),
+      line_items: lineItems,
       success_url: `${siteUrl}/order-confirmation?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${siteUrl}/preorder?cancelled=true`,
       metadata: { orderId },
