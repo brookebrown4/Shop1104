@@ -1,6 +1,20 @@
 import { useState, useEffect, useCallback } from "react";
+import PreorderIntakeForm from "./components/PreorderIntakeForm";
 
 const LOGO_URL = "/Shop_1104_Logo.jpg";
+
+// ── URL routing (lightweight, no router library needed) ─────────────────────
+// Maps a browser path like "/preorder" to the internal page name, and back.
+// This is what makes each page a real, shareable link instead of just
+// internal state that resets to the homepage on refresh.
+const ROUTABLE_PAGES = ["about","gallery","catalog","order","clients","admin","preorder"];
+function pathToPage(pathname){
+  const slug=(pathname||"/").replace(/^\/|\/$/g,"");
+  return ROUTABLE_PAGES.includes(slug)?slug:"home";
+}
+function pageToPath(page){
+  return page==="home" ? "/" : `/${page}`;
+}
 
 // ── API helpers ─────────────────────────────────────────────────────────────
 // Everything here talks to Netlify Functions backed by Supabase. Public
@@ -469,7 +483,7 @@ function generateInvoicePDF({settings, portal, portalCode, checkoutForm, cartIte
 // ── App ───────────────────────────────────────────────────────────────────────
 export default function App(){
   const [ready,setReady]=useState(false);
-  const [page,setPage]=useState("home");
+  const [page,setPage]=useState(()=>pathToPage(window.location.pathname));
 
   // Admin auth: no password lives in the browser. The code the person types
   // is only ever sent as a header and checked server-side.
@@ -549,7 +563,19 @@ export default function App(){
   },[]);
 
   const showToast=(msg)=>{setToast(msg);setTimeout(()=>setToast(null),3200);};
-  const nav=(p)=>{setPage(p);window.scrollTo(0,0);};
+  const nav=(p)=>{
+    setPage(p);
+    const path=pageToPath(p);
+    if(window.location.pathname!==path) window.history.pushState({},"",path);
+    window.scrollTo(0,0);
+  };
+
+  // Keep state in sync with the browser's back/forward buttons.
+  useEffect(()=>{
+    const onPop=()=>setPage(pathToPage(window.location.pathname));
+    window.addEventListener("popstate",onPop);
+    return ()=>window.removeEventListener("popstate",onPop);
+  },[]);
   const toggleAdd=(k)=>setShowAdd(p=>({...p,[k]:!p[k]}));
   const flashSaved=()=>{setSavedPulse(true);setTimeout(()=>setSavedPulse(false),1500);};
 
@@ -1543,7 +1569,7 @@ export default function App(){
           <div><div className="nav-logo-text">{settings.businessName}</div><div className="nav-logo-sub">{settings.tagline}</div></div>
         </div>
         <ul className="nav-links">
-          {[["home","Home"],["about","About"],["gallery","Our Work"],["catalog","Catalog"],["order","Order"]].map(([p,l])=>(
+          {[["home","Home"],["about","About"],["gallery","Our Work"],["catalog","Catalog"],["order","Order"],["preorder","Pre-Order"]].map(([p,l])=>(
             <li key={p}><a className={page===p?"active":""} onClick={()=>nav(p)}>{l}</a></li>
           ))}
           <li><a className={page==="clients"?"active":""} onClick={()=>nav("clients")}>Client Portal</a></li>
@@ -1749,6 +1775,9 @@ export default function App(){
             </div>
           </div>
         </div>}
+
+        {/* PRE-ORDER */}
+        {page==="preorder"&&<PreorderIntakeForm/>}
 
         {/* CLIENT PORTAL */}
         {page==="clients"&&<>
