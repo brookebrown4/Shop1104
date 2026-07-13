@@ -47,6 +47,7 @@ exports.handler = async (event) => {
       products,
       taxRatePercent: Number(process.env.TAX_RATE_PERCENT || 0),
       feeRatePercent: Number(process.env.PROCESSING_FEE_PERCENT || 0),
+      collectPaymentNow: process.env.COLLECT_PAYMENT_NOW !== "false",
     }),
   };
 };
