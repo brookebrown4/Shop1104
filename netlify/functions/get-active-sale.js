@@ -40,5 +40,13 @@ exports.handler = async (event) => {
     return { statusCode: 500, body: JSON.stringify({ error: "Could not load products." }) };
   }
 
-  return { statusCode: 200, body: JSON.stringify({ sale, products }) };
+  return {
+    statusCode: 200,
+    body: JSON.stringify({
+      sale,
+      products,
+      taxRatePercent: Number(process.env.TAX_RATE_PERCENT || 0),
+      feeRatePercent: Number(process.env.PROCESSING_FEE_PERCENT || 0),
+    }),
+  };
 };
