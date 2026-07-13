@@ -186,7 +186,7 @@ export default function PreorderIntakeForm() {
 
               <div className="form-group" style={{ marginBottom: ".75rem" }}>
                 <label>Item</label>
-                <select value={g.productId} onChange={(e) => updateGarment(i, "productId", e.target.value)}>
+                <select value={g.productId} onChange={(e) => { updateGarment(i, "productId", e.target.value); updateGarment(i, "color", ""); }}>
                   <option value="">Choose item…</option>
                   {products.map((p) => (
                     <option key={p.id} value={p.id}>{p.name} — ${(p.price_cents / 100).toFixed(2)}</option>
@@ -197,7 +197,21 @@ export default function PreorderIntakeForm() {
 
               <div className="form-row">
                 <div className="form-group"><label>Color</label>
-                  <input type="text" value={g.color} onChange={(e) => updateGarment(i, "color", e.target.value)} placeholder="e.g. Heather Gray" />
+                  {(() => {
+                    const selectedProduct = productById(g.productId);
+                    const availableColors = selectedProduct?.colors || [];
+                    if (availableColors.length > 0) {
+                      return (
+                        <select value={g.color} onChange={(e) => updateGarment(i, "color", e.target.value)}>
+                          <option value="">Choose color…</option>
+                          {availableColors.map((c) => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                      );
+                    }
+                    return (
+                      <input type="text" value={g.color} onChange={(e) => updateGarment(i, "color", e.target.value)} placeholder="e.g. Heather Gray" disabled={!g.productId} />
+                    );
+                  })()}
                   {errorText(`garment-${i}-color`)}
                 </div>
                 <div className="form-group"><label>Size</label>
