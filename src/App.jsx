@@ -2,6 +2,61 @@ import { useState, useEffect, useCallback } from "react";
 
 const LOGO_URL = "/Shop_1104_Logo.jpg";
 
+// ── API helpers ─────────────────────────────────────────────────────────────
+// Everything here talks to Netlify Functions backed by Supabase. Public
+// reads need no auth. Admin writes send the code the person typed at
+// /admin in an x-admin-code header, checked server-side against
+// ADMIN_ACCESS_CODE — the actual code never ships in the page's JavaScript.
+async function apiGet(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Request failed");
+  return res.json();
+}
+async function apiAdminGet(url, code) {
+  const res = await fetch(url, { headers: { "x-admin-code": code } });
+  if (!res.ok) throw new Error(res.status === 401 ? "Incorrect admin code." : "Request failed.");
+  return res.json();
+}
+async function apiAdminPost(url, code, payload) {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-admin-code": code },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || "Request failed.");
+  }
+  return res.json();
+}
+
+const FN = {
+  siteContent: "/.netlify/functions/get-site-content",
+  adminSiteContent: "/.netlify/functions/admin-site-content",
+  portal: "/.netlify/functions/get-portal",
+  adminPortals: "/.netlify/functions/admin-portals",
+};
+
+// Converts a DB row (snake_case) for list-based content back into the
+// camelCase shape the frontend already uses.
+function mapListItem(resource, row) {
+  if (!row) return null;
+  switch (resource) {
+    case "gallery":
+      return { id: row.id, label: row.label, bg: row.bg, title: row.title, desc: row.description, image: row.image_data || "" };
+    case "threads":
+      return { id: row.id, name: row.name, code: row.code, hex: row.hex };
+    case "fonts":
+      return { id: row.id, name: row.name, sample: row.sample, cssFamily: row.css_family, cssExtra: row.css_extra, desc: row.description };
+    case "fontPackages":
+      return { id: row.id, name: row.name, desc: row.description, resourceUrl: row.resource_url, resourceLabel: row.resource_label };
+    case "designs":
+      return { id: row.id, name: row.name, category: row.category, files: row.files };
+    default:
+      return row;
+  }
+}
+
 // ── CSS ───────────────────────────────────────────────────────────────────────
 function buildCSS(s) {
   const g = s.colorGreen, bg = s.colorBg;
@@ -99,6 +154,11 @@ nav{position:fixed;top:0;left:0;right:0;z-index:200;background:color-mix(in srgb
 .design-card{background:var(--card-bg);border:1px solid var(--border);border-radius:14px;padding:1.5rem;text-align:center;cursor:pointer;transition:all .2s;}
 .design-card:hover{border-color:var(--green);background:white;}
 .design-files{margin-top:.4rem;font-size:.7rem;color:var(--green);font-weight:600;}
+.package-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:1.5rem;}
+.package-card{background:var(--card-bg);border:1px solid var(--border);border-radius:14px;padding:1.75rem;transition:all .2s;}
+.package-card:hover{border-color:var(--green);transform:translateY(-3px);}
+.package-card h4{font-family:'DM Serif Display',serif;font-size:1.05rem;color:var(--ink);margin-bottom:.5rem;}
+.package-card p{font-size:.85rem;color:var(--ink-muted);line-height:1.6;margin-bottom:1.1rem;}
 
 .order-layout{display:grid;grid-template-columns:1fr 400px;gap:3.5rem;align-items:start;}
 .order-form{display:flex;flex-direction:column;gap:1.25rem;}
@@ -231,13 +291,12 @@ footer p{font-size:.78rem;}
 `;
 }
 
-// ── Defaults ──────────────────────────────────────────────────────────────────
+// ── Fallback defaults (used only if the site content API can't be reached) ──
 const DEFAULTS = {
   settings:{
     businessName:"Shop 1104",tagline:"Apparel · Embroidery",
     email:"shop1104@gmail.com",phone:"(515)-777-6636",
     address:"Indianola, Iowa",website:"shop1104.com",
-    adminPassword:"admin123",
     colorBg:"#ebe8e8",colorGreen:"#52805f",colorBlue:"#c5e0f2",
     colorPink:"#f2b0aa",colorYellow:"#eee5ad",colorInk:"#1e1e1e",
     taxRate:"7",
@@ -259,62 +318,10 @@ const DEFAULTS = {
     stat1num:"10+",stat1label:"Years in business",stat2num:"5k+",stat2label:"Orders completed",stat3num:"200+",stat3label:"Thread colors",
     cta:"Work With Us",
   },
-  gallery:[
-    {id:1,label:"Jerseys",bg:"#c5e0f2",title:"Team Jerseys — Riverside FC",desc:"Uniform lettering + crest, 42 pieces",image:""},
-    {id:2,label:"Totes",bg:"#f2b0aa",title:"Tote Bags — Magnolia Bakery",desc:"Custom logo, 200-piece run",image:""},
-    {id:3,label:"Caps",bg:"#eee5ad",title:"Caps — Greenwood Country Club",desc:"Monogram & club crest",image:""},
-    {id:4,label:"Robes",bg:"#b6d4be",title:"Bridal Party Robes",desc:"Personalized script names",image:""},
-    {id:5,label:"Polos",bg:"#c5e0f2",title:"Staff Polos — Lakeside Academy",desc:"School emblem, 60 pieces",image:""},
-    {id:6,label:"Bags",bg:"#f2b0aa",title:"Gift Bags — Hartwell & Co.",desc:"Holiday branded packaging",image:""},
-  ],
-  threads:[
-    {id:1,name:"Ivory",code:"DMC-712",hex:"#F8F0DC"},{id:2,name:"Blush",code:"DMC-3713",hex:"#F5C6C0"},
-    {id:3,name:"Dusty Rose",code:"DMC-3716",hex:"#E8909A"},{id:4,name:"Cranberry",code:"DMC-816",hex:"#9B2335"},
-    {id:5,name:"Bark",code:"DMC-838",hex:"#4A2E1A"},{id:6,name:"Caramel",code:"DMC-976",hex:"#C87941"},
-    {id:7,name:"Gold",code:"DMC-3852",hex:"#D4A017"},{id:8,name:"Olive",code:"DMC-936",hex:"#4F5B2A"},
-    {id:9,name:"Sage",code:"DMC-3363",hex:"#7A8C6E"},{id:10,name:"Sky",code:"DMC-519",hex:"#8BB8D4"},
-    {id:11,name:"Navy",code:"DMC-823",hex:"#1C2D5E"},{id:12,name:"Slate",code:"DMC-414",hex:"#8A8E96"},
-    {id:13,name:"Charcoal",code:"DMC-3799",hex:"#3A3A3A"},{id:14,name:"White",code:"DMC-White",hex:"#FFFFFF"},
-    {id:15,name:"Black",code:"DMC-310",hex:"#1A1A1A"},{id:16,name:"Mauve",code:"DMC-316",hex:"#B07A8A"},
-  ],
-  fonts:[
-    {id:1,name:"Classic Serif",sample:"Monogram",cssFamily:"Georgia, serif",cssExtra:"",desc:"Traditional & elegant"},
-    {id:2,name:"Script",sample:"Monogram",cssFamily:"Palatino Linotype, serif",cssExtra:"font-style:italic;font-weight:300;",desc:"Flowing cursive lettering"},
-    {id:3,name:"Block",sample:"MONOGRAM",cssFamily:"Impact, sans-serif",cssExtra:"letter-spacing:0.05em;",desc:"Bold & modern"},
-    {id:4,name:"Collegiate",sample:"MONOGRAM",cssFamily:"Georgia, serif",cssExtra:"font-weight:700;letter-spacing:0.1em;",desc:"Varsity/athletic style"},
-    {id:5,name:"Fine Script",sample:"Monogram",cssFamily:"Palatino, serif",cssExtra:"font-style:italic;",desc:"Delicate & refined"},
-    {id:6,name:"Modern Sans",sample:"Monogram",cssFamily:"Trebuchet MS, sans-serif",cssExtra:"font-weight:300;letter-spacing:0.15em;",desc:"Clean & contemporary"},
-  ],
-  designs:[
-    {id:1,name:"Floral Wreath",category:"Nature",files:"DST, PES, JEF"},
-    {id:2,name:"Nautical Anchor",category:"Classic",files:"DST, PES"},
-    {id:3,name:"Butterfly Set",category:"Nature",files:"DST, PES, JEF"},
-    {id:4,name:"Christmas Collection",category:"Holiday",files:"DST, PES, XXX"},
-    {id:5,name:"Botanical Leaves",category:"Nature",files:"DST, PES"},
-    {id:6,name:"Sports Initials",category:"Sports",files:"DST, PES, JEF"},
-    {id:7,name:"Royal Crest",category:"Classic",files:"DST, PES"},
-    {id:8,name:"Celestial Moons",category:"Modern",files:"DST, PES, JEF"},
-  ],
-  portals:{
-    "SHOP24":{name:"Riverside FC",lockDate:"",stripeLink:"",products:[
-      {id:1,label:"Jersey",bg:"#c5e0f2",brand:"Nike",title:"Home Jersey Embroidery",price:"$8.50/ea",basePrice:8.50,desc:"4\" crest, left chest",image:"",
-        placements:[{name:"Left Chest",extraCost:0},{name:"Center Chest",extraCost:1.00},{name:"Back Yoke",extraCost:1.50}],
-        sizes:[{name:"S",price:8.50},{name:"M",price:8.50},{name:"L",price:8.50},{name:"XL",price:9.00},{name:"2XL",price:9.50}]},
-      {id:2,label:"Cap",bg:"#eee5ad",brand:"Nike",title:"Training Cap",price:"$5.00/ea",basePrice:5.00,desc:"2\" logo, front center",image:"",
-        placements:[{name:"Front Center",extraCost:0},{name:"Side Panel",extraCost:0.50}],sizes:[]},
-    ]},
-    "MGNL25":{name:"Magnolia Bakery",lockDate:"",stripeLink:"",products:[
-      {id:1,label:"Tote",bg:"#b6d4be",brand:"",title:"Canvas Tote Bag",price:"$12.00/ea",basePrice:12.00,desc:"6\" logo, center front",image:"",
-        placements:[{name:"Center Front",extraCost:0}],sizes:[]},
-    ]},
-  },
+  gallery:[], threads:[], fonts:[], fontPackages:[], designs:[],
 };
 
 function genId(){return Date.now()+Math.floor(Math.random()*1000);}
-function genCode(name){return(name.replace(/\s/g,"").slice(0,4).toUpperCase()+Math.floor(10+Math.random()*90)).slice(0,7);}
-
-async function load(key,fallback){try{const r=await window.storage.get(key);return r?JSON.parse(r.value):fallback;}catch{return fallback;}}
-async function save(key,value){try{await window.storage.set(key,JSON.stringify(value));}catch{}}
 
 function resizeImage(file,cb){
   const reader=new FileReader();
@@ -463,25 +470,36 @@ function generateInvoicePDF({settings, portal, portalCode, checkoutForm, cartIte
 export default function App(){
   const [ready,setReady]=useState(false);
   const [page,setPage]=useState("home");
+
+  // Admin auth: no password lives in the browser. The code the person types
+  // is only ever sent as a header and checked server-side.
   const [adminUnlocked,setAdminUnlocked]=useState(false);
-  const [adminPass,setAdminPass]=useState("");
+  const [adminCodeInput,setAdminCodeInput]=useState("");
+  const [adminCode,setAdminCode]=useState("");
+  const [adminLoginError,setAdminLoginError]=useState("");
   const [adminTab,setAdminTab]=useState("site");
+
   const [catalogTab,setCatalogTab]=useState("threads");
   const [clientCode,setClientCode]=useState("");
   const [clientError,setClientError]=useState("");
-  const [activeClient,setActiveClient]=useState(null);
+  const [activeClient,setActiveClient]=useState(null); // code string
+  const [activePortalData,setActivePortalData]=useState(null); // {portal, products}
   const [cartOpen,setCartOpen]=useState(false);
   const [checkoutDone,setCheckoutDone]=useState(false);
   const [toast,setToast]=useState(null);
   const [savedPulse,setSavedPulse]=useState(false);
+
   const [settings,setSettings]=useState(DEFAULTS.settings);
   const [hero,setHero]=useState(DEFAULTS.hero);
   const [about,setAbout]=useState(DEFAULTS.about);
   const [gallery,setGallery]=useState(DEFAULTS.gallery);
   const [threads,setThreads]=useState(DEFAULTS.threads);
   const [fonts,setFonts]=useState(DEFAULTS.fonts);
+  const [fontPackages,setFontPackages]=useState(DEFAULTS.fontPackages);
   const [designs,setDesigns]=useState(DEFAULTS.designs);
-  const [portals,setPortals]=useState(DEFAULTS.portals);
+
+  const [adminPortals,setAdminPortals]=useState([]); // full list, admin-only
+
   const [cart,setCart]=useState({});
   const [selectedPlacements,setSelectedPlacements]=useState({});
   const [checkoutForm,setCheckoutForm]=useState({name:"",email:"",phone:"",notes:""});
@@ -499,6 +517,7 @@ export default function App(){
   const [newGallery,setNewGallery]=useState({label:"",bg:"#c5e0f2",title:"",desc:"",image:""});
   const [newClient,setNewClient]=useState({name:""});
   const [newFont,setNewFont]=useState({name:"",sample:"Monogram",cssFamily:"Georgia, serif",cssExtra:"",desc:""});
+  const [newFontPackage,setNewFontPackage]=useState({name:"",desc:"",resourceUrl:"",resourceLabel:"View PDF"});
   const [newProduct,setNewProduct]=useState({portalKey:"",label:"",bg:"#c5e0f2",brand:"",title:"",price:"",basePrice:"",desc:"",image:"",placements:[],sizes:[]});
   const [newPlacement,setNewPlacement]=useState({name:"",extraCost:""});
   const [newSize,setNewSize]=useState({name:"",price:""});
@@ -509,45 +528,111 @@ export default function App(){
   const [editingProductIdx,setEditingProductIdx]=useState(null);
   const [editingProductData,setEditingProductData]=useState(null);
 
+  // ── Load public site content once, on mount ──
   useEffect(()=>{
     (async()=>{
-      setSettings(await load("settings",DEFAULTS.settings));
-      setHero(await load("hero",DEFAULTS.hero));
-      setAbout(await load("about",DEFAULTS.about));
-      setGallery(await load("gallery",DEFAULTS.gallery));
-      setThreads(await load("threads",DEFAULTS.threads));
-      setFonts(await load("fonts",DEFAULTS.fonts));
-      setDesigns(await load("designs",DEFAULTS.designs));
-      setPortals(await load("portals",DEFAULTS.portals));
+      try{
+        const data=await apiGet(FN.siteContent);
+        setSettings(data.settings||DEFAULTS.settings);
+        setHero(data.hero||DEFAULTS.hero);
+        setAbout(data.about||DEFAULTS.about);
+        setGallery(data.gallery||[]);
+        setThreads(data.threads||[]);
+        setFonts(data.fonts||[]);
+        setFontPackages(data.fontPackages||[]);
+        setDesigns(data.designs||[]);
+      }catch{
+        // Fall back to hardcoded defaults if the API can't be reached.
+      }
       setReady(true);
     })();
-  },[]);
-
-  const persist=useCallback(async(key,value)=>{
-    await save(key,value);
-    setSavedPulse(true);
-    setTimeout(()=>setSavedPulse(false),2000);
   },[]);
 
   const showToast=(msg)=>{setToast(msg);setTimeout(()=>setToast(null),3200);};
   const nav=(p)=>{setPage(p);window.scrollTo(0,0);};
   const toggleAdd=(k)=>setShowAdd(p=>({...p,[k]:!p[k]}));
+  const flashSaved=()=>{setSavedPulse(true);setTimeout(()=>setSavedPulse(false),1500);};
 
-  const updateSettings=(v)=>{setSettings(v);persist("settings",v);};
-  const updateHero=(v)=>{setHero(v);persist("hero",v);};
-  const updateAbout=(v)=>{setAbout(v);persist("about",v);};
-  const updateGallery=(v)=>{setGallery(v);persist("gallery",v);};
-  const updateThreads=(v)=>{setThreads(v);persist("threads",v);};
-  const updateFonts=(v)=>{setFonts(v);persist("fonts",v);};
-  const updateDesigns=(v)=>{setDesigns(v);persist("designs",v);};
-  const updatePortals=(v)=>{setPortals(v);persist("portals",v);};
+  // ── Admin login: verify the code against the server, don't compare locally ──
+  const handleAdminLogin=async()=>{
+    setAdminLoginError("");
+    try{
+      const data=await apiAdminGet(FN.adminPortals, adminCodeInput);
+      setAdminCode(adminCodeInput);
+      setAdminPortals(data.portals||[]);
+      setAdminUnlocked(true);
+    }catch(err){
+      setAdminLoginError(err.message||"Incorrect admin code.");
+    }
+  };
+
+  const refreshAdminPortals=useCallback(async()=>{
+    try{
+      const data=await apiAdminGet(FN.adminPortals, adminCode);
+      setAdminPortals(data.portals||[]);
+    }catch{
+      showToast("Could not refresh portals.");
+    }
+  },[adminCode]);
+
+  // ── Singleton content updates (settings/hero/about) ──
+  const updateSettings=(v)=>{
+    setSettings(v);
+    apiAdminPost(FN.adminSiteContent, adminCode, {resource:"settings",action:"update",value:v})
+      .then(flashSaved).catch(()=>showToast("Could not save settings."));
+  };
+  const updateHero=(v)=>{
+    setHero(v);
+    apiAdminPost(FN.adminSiteContent, adminCode, {resource:"hero",action:"update",value:v})
+      .then(flashSaved).catch(()=>showToast("Could not save homepage content."));
+  };
+  const updateAbout=(v)=>{
+    setAbout(v);
+    apiAdminPost(FN.adminSiteContent, adminCode, {resource:"about",action:"update",value:v})
+      .then(flashSaved).catch(()=>showToast("Could not save about page."));
+  };
+
+  // ── Generic list helpers (gallery/threads/fonts/fontPackages/designs) ──
+  const listSetters={gallery:setGallery,threads:setThreads,fonts:setFonts,fontPackages:setFontPackages,designs:setDesigns};
+  const listGetters={gallery:()=>gallery,threads:()=>threads,fonts:()=>fonts,fontPackages:()=>fontPackages,designs:()=>designs};
+
+  const addListItem=async(resource,fields,onDone)=>{
+    try{
+      const {item}=await apiAdminPost(FN.adminSiteContent, adminCode, {resource,action:"create",fields});
+      const mapped=mapListItem(resource,item);
+      listSetters[resource]([...listGetters[resource](),mapped]);
+      if(onDone)onDone();
+      showToast("Added");
+    }catch{
+      showToast("Could not add item.");
+    }
+  };
+
+  const updateListItemLocal=(resource,id,fields)=>{
+    listSetters[resource](listGetters[resource]().map(x=>x.id===id?{...x,...fields}:x));
+  };
+
+  const persistListItem=(resource,id,fields)=>{
+    apiAdminPost(FN.adminSiteContent, adminCode, {resource,action:"update",id,fields})
+      .then(flashSaved).catch(()=>showToast("Could not save change."));
+  };
+
+  const removeListItem=async(resource,id)=>{
+    try{
+      await apiAdminPost(FN.adminSiteContent, adminCode, {resource,action:"delete",id});
+      listSetters[resource](listGetters[resource]().filter(x=>x.id!==id));
+      showToast("Removed");
+    }catch{
+      showToast("Could not remove item.");
+    }
+  };
 
   const isLocked=(portal)=>{
     if(!portal?.lockDate) return false;
     return new Date()>new Date(portal.lockDate);
   };
 
-  // Cart helpers
+  // Cart helpers (client-side only, per browsing session — same as before)
   const cartItems=(key)=>cart[key]||[];
   const cartCount=(key)=>cartItems(key).reduce((s,i)=>s+(i.qty||1),0);
   const cartTotal=(key)=>cartItems(key).reduce((s,i)=>s+(i.unitPrice*(i.qty||1)),0);
@@ -556,11 +641,9 @@ export default function App(){
     setCart(prev=>({...prev,[portalKey]:[...(prev[portalKey]||[]),{...item,qty:1,cartId:genId()}]}));
     showToast("Added to cart");
   };
-
   const removeFromCart=(portalKey,cartId)=>{
     setCart(prev=>({...prev,[portalKey]:(prev[portalKey]||[]).filter(i=>i.cartId!==cartId)}));
   };
-
   const updateQty=(portalKey,cartId,qty)=>{
     if(qty<1){removeFromCart(portalKey,cartId);return;}
     setCart(prev=>({...prev,[portalKey]:(prev[portalKey]||[]).map(i=>i.cartId===cartId?{...i,qty}:i)}));
@@ -590,15 +673,14 @@ export default function App(){
         <div className="portal-lock">
           <div className="lock-blob"/>
           <h2>Admin Panel</h2>
-          <p>Enter your admin password to manage all site content.</p>
-          <input className="code-input" type="password" placeholder="••••••••" value={adminPass}
-            onChange={e=>setAdminPass(e.target.value)}
-            onKeyDown={e=>e.key==="Enter"&&(adminPass===settings.adminPassword?setAdminUnlocked(true):showToast("Incorrect password"))}/>
-          <button className="btn-primary" style={{width:"100%"}}
-            onClick={()=>adminPass===settings.adminPassword?setAdminUnlocked(true):showToast("Incorrect password")}>
+          <p>Enter your admin code to manage all site content.</p>
+          <input className="code-input" type="password" placeholder="••••••••" value={adminCodeInput}
+            onChange={e=>setAdminCodeInput(e.target.value)}
+            onKeyDown={e=>e.key==="Enter"&&handleAdminLogin()}/>
+          {adminLoginError&&<p className="portal-error">{adminLoginError}</p>}
+          <button className="btn-primary" style={{width:"100%"}} onClick={handleAdminLogin}>
             Enter
           </button>
-          <p style={{fontSize:".72rem",color:"var(--ink-muted)",marginTop:"1rem",opacity:.6}}>Demo password: admin123</p>
         </div>
       </div>
       {toast&&<div className="toast">{toast}</div>}
@@ -616,7 +698,7 @@ export default function App(){
         </div>
         <div style={{display:"flex",alignItems:"center",gap:"1rem"}}>
           {savedPulse&&<span style={{fontSize:".78rem",color:"var(--green)",fontWeight:500}}>Saved</span>}
-          <button className="btn-sm-ghost" onClick={()=>{setAdminUnlocked(false);setAdminPass("");nav("home");}}>Exit Admin</button>
+          <button className="btn-sm-ghost" onClick={()=>{setAdminUnlocked(false);setAdminCode("");setAdminCodeInput("");nav("home");}}>Exit Admin</button>
         </div>
       </nav>
       <div className="page">
@@ -630,7 +712,7 @@ export default function App(){
               <div key={t} className={`admin-nav${adminTab===t?" active":""}`} onClick={()=>setAdminTab(t)}>{l}</div>
             ))}
             <div className="admin-nav-section" style={{marginTop:".5rem"}}>Catalog</div>
-            {[["threads","Thread Colors"],["fonts","Font Styles"],["designs","Design Files"]].map(([t,l])=>(
+            {[["threads","Thread Colors"],["fonts","Font Styles"],["fontPackages_admin","Font Packages"],["designs","Design Files"]].map(([t,l])=>(
               <div key={t} className={`admin-nav${adminTab===t?" active":""}`} onClick={()=>setAdminTab(t)}>{l}</div>
             ))}
             <div className="admin-nav-section" style={{marginTop:".5rem"}}>Business</div>
@@ -643,7 +725,7 @@ export default function App(){
 
             {/* SITE SETTINGS */}
             {adminTab==="site"&&<>
-              <div className="admin-header"><h2>Site Settings</h2><p>Business info, brand colors, invoice defaults, and admin password.</p></div>
+              <div className="admin-header"><h2>Site Settings</h2><p>Business info, brand colors, and invoice defaults.</p></div>
               <div className="aform">
                 <h3>Business Info</h3>
                 <div className="form-row">
@@ -682,11 +764,13 @@ export default function App(){
                 </div>
               </div>
               <div className="aform">
-                <h3>Admin Password</h3>
-                <div className="form-group" style={{maxWidth:320}}>
-                  <label>Password</label>
-                  <input type="password" value={settings.adminPassword} onChange={e=>updateSettings({...settings,adminPassword:e.target.value})}/>
-                </div>
+                <h3>Admin Access</h3>
+                <p style={{fontSize:".85rem",color:"var(--ink-muted)",lineHeight:1.6}}>
+                  Your admin code is stored securely in Netlify's environment variables
+                  (<code style={{fontFamily:"monospace",background:"var(--bg)",padding:"2px 6px",borderRadius:4}}>ADMIN_ACCESS_CODE</code>) —
+                  it's never visible on the page. To change it, update that value in Netlify
+                  under Site configuration &gt; Environment variables.
+                </p>
               </div>
             </>}
 
@@ -766,13 +850,12 @@ export default function App(){
                   </div>
                   <button className="btn-primary" style={{marginTop:"1.25rem"}} onClick={()=>{
                     if(!newGallery.title)return;
-                    updateGallery([...gallery,{...newGallery,id:genId()}]);
-                    setNewGallery({label:"",bg:"#c5e0f2",title:"",desc:"",image:""});
-                    toggleAdd("gallery");showToast("Gallery item added");
+                    addListItem("gallery",newGallery,()=>setNewGallery({label:"",bg:"#c5e0f2",title:"",desc:"",image:""}));
+                    toggleAdd("gallery");
                   }}>Add Item</button>
                 </div>
               )}
-              {gallery.map((g,i)=>(
+              {gallery.map((g)=>(
                 <div className="acard" key={g.id}>
                   <div className="acard-row">
                     <div style={{display:"flex",alignItems:"center",gap:"1rem",flex:1,flexWrap:"wrap"}}>
@@ -785,7 +868,7 @@ export default function App(){
                       </div>
                     </div>
                     <div className="acard-actions">
-                      <button className="btn-sm-danger" onClick={()=>{updateGallery(gallery.filter(x=>x.id!==g.id));showToast("Removed");}}>Remove</button>
+                      <button className="btn-sm-danger" onClick={()=>removeListItem("gallery",g.id)}>Remove</button>
                     </div>
                   </div>
                 </div>
@@ -811,22 +894,31 @@ export default function App(){
                   </div>
                   <button className="btn-primary" style={{marginTop:"1.25rem"}} onClick={()=>{
                     if(!newThread.name||!newThread.code)return;
-                    updateThreads([...threads,{...newThread,id:genId()}]);
-                    setNewThread({name:"",code:"",hex:"#52805f"});toggleAdd("threads");showToast("Thread added");
+                    addListItem("threads",newThread,()=>setNewThread({name:"",code:"",hex:"#52805f"}));
+                    toggleAdd("threads");
                   }}>Add Color</button>
                 </div>
               )}
-              {threads.map((t,i)=>(
+              {threads.map((t)=>(
                 <div className="acard" key={t.id}>
                   <div className="acard-row">
                     <div style={{display:"flex",alignItems:"center",gap:"1rem",flex:1}}>
-                      <input type="color" value={t.hex} onChange={e=>{const u=[...threads];u[i]={...t,hex:e.target.value};updateThreads(u);}} style={{width:36,height:36,borderRadius:"50%",border:"3px solid white",boxShadow:"0 0 0 1px rgba(0,0,0,.1)",cursor:"pointer",padding:0}}/>
+                      <input type="color" value={t.hex}
+                        onChange={e=>updateListItemLocal("threads",t.id,{hex:e.target.value})}
+                        onBlur={e=>persistListItem("threads",t.id,{...t,hex:e.target.value})}
+                        style={{width:36,height:36,borderRadius:"50%",border:"3px solid white",boxShadow:"0 0 0 1px rgba(0,0,0,.1)",cursor:"pointer",padding:0}}/>
                       <div style={{flex:1}}>
-                        <input value={t.name} onChange={e=>{const u=[...threads];u[i]={...t,name:e.target.value};updateThreads(u);}} style={{border:"none",background:"transparent",fontSize:".95rem",color:"var(--ink)",fontWeight:500,width:"100%",outline:"none",fontFamily:"'Jost',sans-serif"}}/>
-                        <input value={t.code} onChange={e=>{const u=[...threads];u[i]={...t,code:e.target.value};updateThreads(u);}} style={{border:"none",background:"transparent",fontSize:".8rem",color:"var(--ink-muted)",width:"100%",outline:"none",fontFamily:"'Jost',sans-serif"}}/>
+                        <input value={t.name}
+                          onChange={e=>updateListItemLocal("threads",t.id,{name:e.target.value})}
+                          onBlur={e=>persistListItem("threads",t.id,{...t,name:e.target.value})}
+                          style={{border:"none",background:"transparent",fontSize:".95rem",color:"var(--ink)",fontWeight:500,width:"100%",outline:"none",fontFamily:"'Jost',sans-serif"}}/>
+                        <input value={t.code}
+                          onChange={e=>updateListItemLocal("threads",t.id,{code:e.target.value})}
+                          onBlur={e=>persistListItem("threads",t.id,{...t,code:e.target.value})}
+                          style={{border:"none",background:"transparent",fontSize:".8rem",color:"var(--ink-muted)",width:"100%",outline:"none",fontFamily:"'Jost',sans-serif"}}/>
                       </div>
                     </div>
-                    <button className="btn-sm-danger" onClick={()=>{updateThreads(threads.filter(x=>x.id!==t.id));showToast("Removed");}}>Remove</button>
+                    <button className="btn-sm-danger" onClick={()=>removeListItem("threads",t.id)}>Remove</button>
                   </div>
                 </div>
               ))}
@@ -834,7 +926,7 @@ export default function App(){
 
             {/* FONTS */}
             {adminTab==="fonts"&&<>
-              <div className="admin-header"><h2>Font Styles</h2></div>
+              <div className="admin-header"><h2>Font Styles</h2><p>Individual lettering styles shown in the catalog.</p></div>
               <button className="btn-primary" style={{marginBottom:"1.5rem"}} onClick={()=>toggleAdd("fonts")}>{showAdd.fonts?"Cancel":"+ Add Font Style"}</button>
               {showAdd.fonts&&(
                 <div className="aform">
@@ -849,22 +941,77 @@ export default function App(){
                   </div>
                   <button className="btn-primary" style={{marginTop:"1.25rem"}} onClick={()=>{
                     if(!newFont.name)return;
-                    updateFonts([...fonts,{...newFont,id:genId()}]);
-                    setNewFont({name:"",sample:"Monogram",cssFamily:"Georgia, serif",cssExtra:"",desc:""});toggleAdd("fonts");showToast("Font added");
+                    addListItem("fonts",newFont,()=>setNewFont({name:"",sample:"Monogram",cssFamily:"Georgia, serif",cssExtra:"",desc:""}));
+                    toggleAdd("fonts");
                   }}>Add Font</button>
                 </div>
               )}
-              {fonts.map((f,i)=>(
+              {fonts.map((f)=>(
                 <div className="acard" key={f.id}>
                   <div className="acard-row">
                     <div style={{display:"flex",alignItems:"center",gap:"1.5rem",flex:1,flexWrap:"wrap"}}>
                       <div style={{fontSize:"1.75rem",fontFamily:f.cssFamily,minWidth:100,color:"var(--ink)"}}>{f.sample}</div>
                       <div style={{flex:1}}>
-                        <input value={f.name} onChange={e=>{const u=[...fonts];u[i]={...f,name:e.target.value};updateFonts(u);}} style={{border:"none",background:"transparent",fontSize:".95rem",color:"var(--ink)",fontWeight:500,width:"100%",outline:"none",fontFamily:"'Jost',sans-serif"}}/>
-                        <input value={f.desc} onChange={e=>{const u=[...fonts];u[i]={...f,desc:e.target.value};updateFonts(u);}} style={{border:"none",background:"transparent",fontSize:".8rem",color:"var(--ink-muted)",width:"100%",outline:"none",fontFamily:"'Jost',sans-serif"}}/>
+                        <input value={f.name}
+                          onChange={e=>updateListItemLocal("fonts",f.id,{name:e.target.value})}
+                          onBlur={e=>persistListItem("fonts",f.id,{...f,name:e.target.value})}
+                          style={{border:"none",background:"transparent",fontSize:".95rem",color:"var(--ink)",fontWeight:500,width:"100%",outline:"none",fontFamily:"'Jost',sans-serif"}}/>
+                        <input value={f.desc}
+                          onChange={e=>updateListItemLocal("fonts",f.id,{desc:e.target.value})}
+                          onBlur={e=>persistListItem("fonts",f.id,{...f,desc:e.target.value})}
+                          style={{border:"none",background:"transparent",fontSize:".8rem",color:"var(--ink-muted)",width:"100%",outline:"none",fontFamily:"'Jost',sans-serif"}}/>
                       </div>
                     </div>
-                    <button className="btn-sm-danger" onClick={()=>{updateFonts(fonts.filter(x=>x.id!==f.id));showToast("Removed");}}>Remove</button>
+                    <button className="btn-sm-danger" onClick={()=>removeListItem("fonts",f.id)}>Remove</button>
+                  </div>
+                </div>
+              ))}
+            </>}
+
+            {/* FONT PACKAGES */}
+            {adminTab==="fontPackages_admin"&&<>
+              <div className="admin-header"><h2>Font Packages</h2><p>Bundle multiple font options into a downloadable PDF or a Canva link customers can browse.</p></div>
+              <button className="btn-primary" style={{marginBottom:"1.5rem"}} onClick={()=>toggleAdd("fontPackages")}>{showAdd.fontPackages?"Cancel":"+ Add Font Package"}</button>
+              {showAdd.fontPackages&&(
+                <div className="aform">
+                  <h3>New Font Package</h3>
+                  <div className="form-row">
+                    <div className="form-group"><label>Package Name</label><input value={newFontPackage.name} onChange={e=>setNewFontPackage({...newFontPackage,name:e.target.value})} placeholder="Wedding Monogram Set"/></div>
+                    <div className="form-group"><label>Link Label</label><input value={newFontPackage.resourceLabel} onChange={e=>setNewFontPackage({...newFontPackage,resourceLabel:e.target.value})} placeholder="View PDF / View on Canva"/></div>
+                  </div>
+                  <div className="form-group" style={{marginTop:"1rem"}}><label>Description</label><input value={newFontPackage.desc} onChange={e=>setNewFontPackage({...newFontPackage,desc:e.target.value})} placeholder="12 elegant script options for wedding orders"/></div>
+                  <div className="form-group" style={{marginTop:"1rem"}}>
+                    <label>PDF or Canva Link</label>
+                    <input value={newFontPackage.resourceUrl} onChange={e=>setNewFontPackage({...newFontPackage,resourceUrl:e.target.value})} placeholder="https://www.canva.com/design/... or a link to your PDF"/>
+                  </div>
+                  <p style={{fontSize:".78rem",color:"var(--ink-muted)",marginTop:".5rem"}}>
+                    Host your PDF somewhere like Google Drive or Dropbox and paste the shareable link here, or paste a Canva design/share link.
+                  </p>
+                  <button className="btn-primary" style={{marginTop:"1.25rem"}} onClick={()=>{
+                    if(!newFontPackage.name||!newFontPackage.resourceUrl)return;
+                    addListItem("fontPackages",newFontPackage,()=>setNewFontPackage({name:"",desc:"",resourceUrl:"",resourceLabel:"View PDF"}));
+                    toggleAdd("fontPackages");
+                  }}>Add Package</button>
+                </div>
+              )}
+              {fontPackages.map((fp)=>(
+                <div className="acard" key={fp.id}>
+                  <div className="acard-row">
+                    <div style={{flex:1}}>
+                      <input value={fp.name}
+                        onChange={e=>updateListItemLocal("fontPackages",fp.id,{name:e.target.value})}
+                        onBlur={e=>persistListItem("fontPackages",fp.id,{...fp,name:e.target.value})}
+                        style={{border:"none",background:"transparent",fontSize:".95rem",color:"var(--ink)",fontWeight:500,width:"100%",outline:"none",fontFamily:"'Jost',sans-serif"}}/>
+                      <input value={fp.desc||""}
+                        onChange={e=>updateListItemLocal("fontPackages",fp.id,{desc:e.target.value})}
+                        onBlur={e=>persistListItem("fontPackages",fp.id,{...fp,desc:e.target.value})}
+                        style={{border:"none",background:"transparent",fontSize:".8rem",color:"var(--ink-muted)",width:"100%",outline:"none",fontFamily:"'Jost',sans-serif",marginBottom:".3rem"}}/>
+                      <input value={fp.resourceUrl||""}
+                        onChange={e=>updateListItemLocal("fontPackages",fp.id,{resourceUrl:e.target.value})}
+                        onBlur={e=>persistListItem("fontPackages",fp.id,{...fp,resourceUrl:e.target.value})}
+                        style={{border:"none",background:"transparent",fontSize:".78rem",color:"var(--green)",width:"100%",outline:"none",fontFamily:"'Jost',sans-serif"}}/>
+                    </div>
+                    <button className="btn-sm-danger" onClick={()=>removeListItem("fontPackages",fp.id)}>Remove</button>
                   </div>
                 </div>
               ))}
@@ -884,12 +1031,12 @@ export default function App(){
                   <div className="form-group" style={{marginTop:"1rem"}}><label>File Formats</label><input value={newDesign.files} onChange={e=>setNewDesign({...newDesign,files:e.target.value})} placeholder="DST, PES, JEF"/></div>
                   <button className="btn-primary" style={{marginTop:"1.25rem"}} onClick={()=>{
                     if(!newDesign.name)return;
-                    updateDesigns([...designs,{...newDesign,id:genId()}]);
-                    setNewDesign({name:"",category:"",files:"DST, PES"});toggleAdd("designs");showToast("Design added");
+                    addListItem("designs",newDesign,()=>setNewDesign({name:"",category:"",files:"DST, PES"}));
+                    toggleAdd("designs");
                   }}>Add Design</button>
                 </div>
               )}
-              {designs.map((d,i)=>(
+              {designs.map((d)=>(
                 <div className="acard" key={d.id}>
                   <div className="acard-row">
                     <div style={{display:"flex",alignItems:"center",gap:"1rem",flex:1}}>
@@ -897,14 +1044,23 @@ export default function App(){
                         <span style={{fontFamily:"'DM Serif Display',serif",fontSize:".85rem",color:"var(--green)"}}>{(d.category||"—").slice(0,1)}</span>
                       </div>
                       <div style={{flex:1}}>
-                        <input value={d.name} onChange={e=>{const u=[...designs];u[i]={...d,name:e.target.value};updateDesigns(u);}} style={{border:"none",background:"transparent",fontSize:".95rem",color:"var(--ink)",fontWeight:500,width:"100%",outline:"none",fontFamily:"'Jost',sans-serif"}}/>
+                        <input value={d.name}
+                          onChange={e=>updateListItemLocal("designs",d.id,{name:e.target.value})}
+                          onBlur={e=>persistListItem("designs",d.id,{...d,name:e.target.value})}
+                          style={{border:"none",background:"transparent",fontSize:".95rem",color:"var(--ink)",fontWeight:500,width:"100%",outline:"none",fontFamily:"'Jost',sans-serif"}}/>
                         <div style={{display:"flex",gap:"1rem"}}>
-                          <input value={d.category} onChange={e=>{const u=[...designs];u[i]={...d,category:e.target.value};updateDesigns(u);}} style={{border:"none",background:"transparent",fontSize:".8rem",color:"var(--ink-muted)",outline:"none",fontFamily:"'Jost',sans-serif"}} placeholder="Category"/>
-                          <input value={d.files} onChange={e=>{const u=[...designs];u[i]={...d,files:e.target.value};updateDesigns(u);}} style={{border:"none",background:"transparent",fontSize:".8rem",color:"var(--green)",outline:"none",fontFamily:"'Jost',sans-serif",fontWeight:600}} placeholder="DST, PES"/>
+                          <input value={d.category}
+                            onChange={e=>updateListItemLocal("designs",d.id,{category:e.target.value})}
+                            onBlur={e=>persistListItem("designs",d.id,{...d,category:e.target.value})}
+                            style={{border:"none",background:"transparent",fontSize:".8rem",color:"var(--ink-muted)",outline:"none",fontFamily:"'Jost',sans-serif"}} placeholder="Category"/>
+                          <input value={d.files}
+                            onChange={e=>updateListItemLocal("designs",d.id,{files:e.target.value})}
+                            onBlur={e=>persistListItem("designs",d.id,{...d,files:e.target.value})}
+                            style={{border:"none",background:"transparent",fontSize:".8rem",color:"var(--green)",outline:"none",fontFamily:"'Jost',sans-serif",fontWeight:600}} placeholder="DST, PES"/>
                         </div>
                       </div>
                     </div>
-                    <button className="btn-sm-danger" onClick={()=>{updateDesigns(designs.filter(x=>x.id!==d.id));showToast("Removed");}}>Remove</button>
+                    <button className="btn-sm-danger" onClick={()=>removeListItem("designs",d.id)}>Remove</button>
                   </div>
                 </div>
               ))}
@@ -919,44 +1075,53 @@ export default function App(){
                   <h3>New Client Portal</h3>
                   <div className="form-group"><label>Business Name</label><input value={newClient.name} onChange={e=>setNewClient({name:e.target.value})} placeholder="Acme Corp"/></div>
                   <p style={{fontSize:".8rem",color:"var(--ink-muted)",marginTop:".75rem"}}>A unique access code will be auto-generated.</p>
-                  <button className="btn-primary" style={{marginTop:"1.25rem"}} onClick={()=>{
+                  <button className="btn-primary" style={{marginTop:"1.25rem"}} onClick={async()=>{
                     if(!newClient.name)return;
-                    const code=genCode(newClient.name);
-                    updatePortals({...portals,[code]:{name:newClient.name,lockDate:"",stripeLink:"",products:[]}});
-                    setNewClient({name:""});toggleAdd("clients");showToast(`Portal created — Code: ${code}`);
+                    try{
+                      const {portal}=await apiAdminPost(FN.adminPortals, adminCode, {action:"createPortal",name:newClient.name});
+                      setNewClient({name:""});toggleAdd("clients");
+                      await refreshAdminPortals();
+                      showToast(`Portal created — Code: ${portal.code}`);
+                    }catch{showToast("Could not create portal.");}
                   }}>Create Portal</button>
                 </div>
               )}
-              {Object.entries(portals).map(([code,portal])=>(
-                <div className="acard" key={code}>
+              {adminPortals.map((portal)=>(
+                <div className="acard" key={portal.code}>
                   <div className="acard-row">
                     <div className="acard-info" style={{flex:1}}>
                       <div style={{display:"flex",alignItems:"center",gap:".75rem",flexWrap:"wrap",marginBottom:".4rem"}}>
                         <span style={{fontWeight:600,fontSize:"1rem",color:"var(--ink)"}}>{portal.name}</span>
-                        <span className="code-badge">{code}</span>
+                        <span className="code-badge">{portal.code}</span>
                         {isLocked(portal)&&<span className="lock-badge">Closed</span>}
                       </div>
                       <p>{portal.products.length} product{portal.products.length!==1?"s":""}{portal.lockDate?` · Closes ${new Date(portal.lockDate).toLocaleDateString()}`:""}</p>
                     </div>
                     <div className="acard-actions">
                       <button className="btn-sm-ghost" onClick={()=>{
-                        setEditingPortalKey(code);
+                        setEditingPortalKey(portal.code);
                         setEditingPortalData({name:portal.name,lockDate:portal.lockDate||"",stripeLink:portal.stripeLink||""});
                       }}>Edit</button>
-                      <button className="btn-sm-ghost" onClick={()=>showToast(`Code: ${code}`)}>Copy Code</button>
+                      <button className="btn-sm-ghost" onClick={()=>showToast(`Code: ${portal.code}`)}>Copy Code</button>
                       <button className="btn-sm-green" onClick={()=>{
                         setAdminTab("invoices");
-                        setPortalInvoiceKey(code);
+                        setPortalInvoiceKey(portal.code);
                         setPortalInvoiceItems(portal.products.map(p=>({
                           name:p.title,placementName:"",
                           unitPrice:parseFloat(p.basePrice||0),qty:1,
                           bg:p.bg,label:p.label,
                         })));
                       }}>Invoice</button>
-                      <button className="btn-sm-danger" onClick={()=>{const u={...portals};delete u[code];updatePortals(u);showToast("Portal removed");}}>Remove</button>
+                      <button className="btn-sm-danger" onClick={async()=>{
+                        try{
+                          await apiAdminPost(FN.adminPortals, adminCode, {action:"deletePortal",code:portal.code});
+                          await refreshAdminPortals();
+                          showToast("Portal removed");
+                        }catch{showToast("Could not remove portal.");}
+                      }}>Remove</button>
                     </div>
                   </div>
-                  {editingPortalKey===code&&editingPortalData&&(
+                  {editingPortalKey===portal.code&&editingPortalData&&(
                     <div className="edit-form" style={{marginTop:"1rem"}}>
                       <h4>Edit Portal</h4>
                       <div className="form-row">
@@ -968,9 +1133,13 @@ export default function App(){
                         <input value={editingPortalData.stripeLink} onChange={e=>setEditingPortalData({...editingPortalData,stripeLink:e.target.value})} placeholder="https://buy.stripe.com/..."/>
                       </div>
                       <div style={{display:"flex",gap:".75rem",marginTop:"1.25rem"}}>
-                        <button className="btn-primary" onClick={()=>{
-                          updatePortals({...portals,[code]:{...portal,...editingPortalData}});
-                          setEditingPortalKey(null);setEditingPortalData(null);showToast("Portal updated");
+                        <button className="btn-primary" onClick={async()=>{
+                          try{
+                            await apiAdminPost(FN.adminPortals, adminCode, {action:"updatePortal",code:portal.code,fields:editingPortalData});
+                            setEditingPortalKey(null);setEditingPortalData(null);
+                            await refreshAdminPortals();
+                            showToast("Portal updated");
+                          }catch{showToast("Could not update portal.");}
                         }}>Save Changes</button>
                         <button className="btn-sm-ghost" onClick={()=>{setEditingPortalKey(null);setEditingPortalData(null);}}>Cancel</button>
                       </div>
@@ -988,7 +1157,7 @@ export default function App(){
                 <div className="form-group"><label>Client Portal</label>
                   <select value={newProduct.portalKey} onChange={e=>setNewProduct({...newProduct,portalKey:e.target.value})}>
                     <option value="">— Select a client —</option>
-                    {Object.entries(portals).map(([code,p])=><option key={code} value={code}>{p.name} ({code})</option>)}
+                    {adminPortals.map((p)=><option key={p.code} value={p.code}>{p.name} ({p.code})</option>)}
                   </select>
                 </div>
                 <div className="form-row" style={{marginTop:"1rem"}}>
@@ -1072,21 +1241,27 @@ export default function App(){
                   <p style={{fontSize:".75rem",color:"var(--ink-muted)",marginTop:".75rem"}}>Size pricing is for your reference and admin records only.</p>
                 </div>
 
-                <button className="btn-primary" style={{marginTop:"1.25rem"}} onClick={()=>{
+                <button className="btn-primary" style={{marginTop:"1.25rem"}} onClick={async()=>{
                   if(!newProduct.portalKey||!newProduct.title)return;
-                  const product={...newProduct,id:genId(),placements:newProduct.placements.length>0?newProduct.placements:[{name:"Standard",extraCost:"0"}],sizes:newProduct.sizes};
-                  updatePortals({...portals,[newProduct.portalKey]:{...portals[newProduct.portalKey],products:[...portals[newProduct.portalKey].products,product]}});
-                  setNewProduct({portalKey:newProduct.portalKey,label:"",bg:"#c5e0f2",brand:"",title:"",price:"",basePrice:"",desc:"",image:"",placements:[],sizes:[]});
-                  setNewPlacement({name:"",extraCost:""});setNewSize({name:"",price:""});
-                  showToast("Product added");
+                  const fields={
+                    ...newProduct,
+                    placements:newProduct.placements.length>0?newProduct.placements:[{name:"Standard",extraCost:"0"}],
+                  };
+                  try{
+                    await apiAdminPost(FN.adminPortals, adminCode, {action:"createProduct",portalCode:newProduct.portalKey,fields});
+                    setNewProduct({portalKey:newProduct.portalKey,label:"",bg:"#c5e0f2",brand:"",title:"",price:"",basePrice:"",desc:"",image:"",placements:[],sizes:[]});
+                    setNewPlacement({name:"",extraCost:""});setNewSize({name:"",price:""});
+                    await refreshAdminPortals();
+                    showToast("Product added");
+                  }catch{showToast("Could not add product.");}
                 }}>Add Product</button>
               </div>
 
               {/* Existing products per portal */}
-              {Object.entries(portals).map(([code,portal])=>(
-                <div key={code} style={{marginBottom:"2rem"}}>
+              {adminPortals.map((portal)=>(
+                <div key={portal.code} style={{marginBottom:"2rem"}}>
                   <div style={{display:"flex",alignItems:"center",gap:".75rem",marginBottom:".75rem",padding:".75rem 1rem",background:"var(--card-bg)",border:"1px solid var(--border)",borderRadius:12}}>
-                    <span className="code-badge">{code}</span>
+                    <span className="code-badge">{portal.code}</span>
                     <span style={{fontFamily:"'DM Serif Display',serif",fontSize:"1rem",color:"var(--ink)"}}>{portal.name}</span>
                     <span style={{fontSize:".8rem",color:"var(--ink-muted)",marginLeft:"auto"}}>{portal.products.length} products</span>
                   </div>
@@ -1107,16 +1282,19 @@ export default function App(){
                         </div>
                         <div className="acard-actions">
                           <button className="btn-sm-ghost" onClick={()=>{
-                            setEditingProductKey(code);setEditingProductIdx(pi);
+                            setEditingProductKey(portal.code);setEditingProductIdx(pi);
                             setEditingProductData({...p});
                           }}>Edit</button>
-                          <button className="btn-sm-danger" onClick={()=>{
-                            const prods=portal.products.filter((_,i)=>i!==pi);
-                            updatePortals({...portals,[code]:{...portal,products:prods}});showToast("Product removed");
+                          <button className="btn-sm-danger" onClick={async()=>{
+                            try{
+                              await apiAdminPost(FN.adminPortals, adminCode, {action:"deleteProduct",id:p.id});
+                              await refreshAdminPortals();
+                              showToast("Product removed");
+                            }catch{showToast("Could not remove product.");}
                           }}>Remove</button>
                         </div>
                       </div>
-                      {editingProductKey===code&&editingProductIdx===pi&&editingProductData&&(
+                      {editingProductKey===portal.code&&editingProductIdx===pi&&editingProductData&&(
                         <div className="edit-form" style={{marginTop:"1rem"}}>
                           <h4>Edit Product</h4>
                           <div className="form-row">
@@ -1136,11 +1314,13 @@ export default function App(){
                             </label>
                           </div>
                           <div style={{display:"flex",gap:".75rem",marginTop:"1.25rem"}}>
-                            <button className="btn-primary" onClick={()=>{
-                              const prods=[...portal.products];prods[pi]=editingProductData;
-                              updatePortals({...portals,[code]:{...portal,products:prods}});
-                              setEditingProductKey(null);setEditingProductIdx(null);setEditingProductData(null);
-                              showToast("Product updated");
+                            <button className="btn-primary" onClick={async()=>{
+                              try{
+                                await apiAdminPost(FN.adminPortals, adminCode, {action:"updateProduct",id:editingProductData.id,fields:editingProductData});
+                                setEditingProductKey(null);setEditingProductIdx(null);setEditingProductData(null);
+                                await refreshAdminPortals();
+                                showToast("Product updated");
+                              }catch{showToast("Could not update product.");}
                             }}>Save Changes</button>
                             <button className="btn-sm-ghost" onClick={()=>{setEditingProductKey(null);setEditingProductIdx(null);setEditingProductData(null);}}>Cancel</button>
                           </div>
@@ -1165,8 +1345,9 @@ export default function App(){
                   <select value={portalInvoiceKey||""} onChange={e=>{
                     const key=e.target.value;
                     setPortalInvoiceKey(key);
-                    if(key&&portals[key]){
-                      setPortalInvoiceItems(portals[key].products.map(p=>({
+                    const portal=adminPortals.find(p=>p.code===key);
+                    if(key&&portal){
+                      setPortalInvoiceItems(portal.products.map(p=>({
                         name:p.title,
                         placementName:"",
                         unitPrice:parseFloat(p.basePrice||0),
@@ -1179,13 +1360,13 @@ export default function App(){
                     }
                   }}>
                     <option value="">— Select a portal —</option>
-                    {Object.entries(portals).map(([code,p])=>(
-                      <option key={code} value={code}>{p.name} ({code})</option>
+                    {adminPortals.map((p)=>(
+                      <option key={p.code} value={p.code}>{p.name} ({p.code})</option>
                     ))}
                   </select>
                 </div>
 
-                {portalInvoiceKey&&portals[portalInvoiceKey]&&portalInvoiceItems.length>0&&(
+                {portalInvoiceKey&&adminPortals.find(p=>p.code===portalInvoiceKey)&&portalInvoiceItems.length>0&&(
                   <>
                     <div style={{marginBottom:"1.25rem"}}>
                       {portalInvoiceItems.map((item,i)=>(
@@ -1215,7 +1396,7 @@ export default function App(){
                       <span style={{fontWeight:700,fontSize:"1rem",color:"var(--green)"}}>${portalInvoiceItems.reduce((s,i)=>s+(i.unitPrice*(i.qty||0)),0).toFixed(2)}</span>
                     </div>
                     <button className="btn-primary" onClick={()=>{
-                      const portal=portals[portalInvoiceKey];
+                      const portal=adminPortals.find(p=>p.code===portalInvoiceKey);
                       const today=new Date();
                       const due=new Date(today);
                       due.setDate(due.getDate()+parseInt(settings.invoiceDueDays||14));
@@ -1335,10 +1516,20 @@ export default function App(){
   );
 
   // ── Public site ───────────────────────────────────────────────────────────
-  const handleClientUnlock=()=>{
+  const handleClientUnlock=async()=>{
     const key=clientCode.trim().toUpperCase();
-    if(portals[key]){setActiveClient(key);setClientError("");}
-    else setClientError("Invalid access code — please check with us if you need help.");
+    try{
+      const data=await apiGet(`${FN.portal}?code=${encodeURIComponent(key)}`);
+      if(data.portal){
+        setActiveClient(key);
+        setActivePortalData(data);
+        setClientError("");
+      }else{
+        setClientError("Invalid access code — please check with us if you need help.");
+      }
+    }catch{
+      setClientError("Could not check that code — please try again.");
+    }
   };
 
   const portalCartCount=activeClient?cartCount(activeClient):0;
@@ -1462,7 +1653,7 @@ export default function App(){
           <h2 className="section-title" style={{marginBottom:".5rem"}}>Thread, Font & Design Catalog</h2>
           <p className="section-body" style={{marginBottom:"2.5rem"}}>Reference this when placing your order.</p>
           <div className="catalog-tabs">
-            {[["threads","Threads"],["fonts","Fonts"],["designs","Designs"]].map(([t,l])=>(
+            {[["threads","Threads"],["fonts","Fonts"],["fontPackages","Font Packages"],["designs","Designs"]].map(([t,l])=>(
               <button key={t} className={`catalog-tab${catalogTab===t?" active":""}`} onClick={()=>setCatalogTab(t)}>{l}</button>
             ))}
           </div>
@@ -1481,6 +1672,20 @@ export default function App(){
                 <div className="font-sample" style={{fontFamily:f.cssFamily}}>{f.sample}</div>
                 <div className="font-meta">Style</div>
                 <div className="font-name">{f.name} — {f.desc}</div>
+              </div>
+            ))}
+          </div>}
+          {catalogTab==="fontPackages"&&<div className="package-grid">
+            {fontPackages.length===0&&<p style={{color:"var(--ink-muted)"}}>No font packages available yet.</p>}
+            {fontPackages.map(fp=>(
+              <div className="package-card" key={fp.id}>
+                <h4>{fp.name}</h4>
+                <p>{fp.desc}</p>
+                {fp.resourceUrl&&(
+                  <a href={fp.resourceUrl} target="_blank" rel="noopener noreferrer">
+                    <button className="btn-sm-green">{fp.resourceLabel||"View"}</button>
+                  </a>
+                )}
               </div>
             ))}
           </div>}
@@ -1547,7 +1752,7 @@ export default function App(){
 
         {/* CLIENT PORTAL */}
         {page==="clients"&&<>
-          {!activeClient?(
+          {!activeClient||!activePortalData?(
             <div className="portal-lock">
               <div className="lock-blob"/>
               <h2>Client Portal</h2>
@@ -1558,40 +1763,39 @@ export default function App(){
                 placeholder="XXXXXXX"/>
               {clientError&&<p className="portal-error">{clientError}</p>}
               <button className="btn-primary" style={{width:"100%"}} onClick={handleClientUnlock}>Access Portal</button>
-              <p style={{fontSize:".75rem",color:"var(--ink-muted)",marginTop:"1rem",opacity:.6}}>Demo codes: SHOP24 · MGNL25</p>
             </div>
           ):(
             <div>
               {/* Portal header */}
               <div className="client-header">
                 <div>
-                  <h2>{portals[activeClient].name}</h2>
+                  <h2>{activePortalData.portal.name}</h2>
                   <p>{cartOpen?"Your cart":"Your personalized catalog — pricing shown is your contracted rate."}</p>
                 </div>
                 <div className="client-header-actions">
-                  {!isLocked(portals[activeClient])&&(
+                  {!isLocked(activePortalData.portal)&&(
                     <button className="cart-btn" onClick={()=>{setCartOpen(!cartOpen);setCheckoutDone(false);}}>
                       {cartOpen?"Back to Products":"Cart"}
                       {portalCartCount>0&&<span className="cart-badge">{portalCartCount}</span>}
                     </button>
                   )}
                   <button className="btn-outline" style={{color:"white",borderColor:"rgba(255,255,255,.4)",padding:".45rem 1rem",fontSize:".75rem"}}
-                    onClick={()=>{setActiveClient(null);setClientCode("");setCartOpen(false);setCheckoutDone(false);}}>
+                    onClick={()=>{setActiveClient(null);setActivePortalData(null);setClientCode("");setCartOpen(false);setCheckoutDone(false);}}>
                     Exit Portal
                   </button>
                 </div>
               </div>
 
               {/* Locked portal */}
-              {isLocked(portals[activeClient])?(
+              {isLocked(activePortalData.portal)?(
                 <div className="locked-portal">
                   <div style={{width:80,height:80,borderRadius:"50%",background:"var(--linen,#EDE3D5)",margin:"0 auto 1.5rem",border:"2px solid var(--border)"}}/>
                   <h2>This portal is closed</h2>
                   <p style={{fontFamily:"'Crimson Pro',serif",fontSize:"1.1rem",color:"var(--ink-muted)",lineHeight:1.7,marginTop:".75rem"}}>
-                    The ordering window for {portals[activeClient].name} has passed.
+                    The ordering window for {activePortalData.portal.name} has passed.
                     Please contact us if you need to make changes to an existing order.
                   </p>
-                  <p style={{fontSize:".8rem",color:"var(--ink-muted)",marginTop:"1rem"}}>Closed: {new Date(portals[activeClient].lockDate).toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</p>
+                  <p style={{fontSize:".8rem",color:"var(--ink-muted)",marginTop:"1rem"}}>Closed: {new Date(activePortalData.portal.lockDate).toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</p>
                 </div>
               ):cartOpen?(
                 /* CART & CHECKOUT */
@@ -1602,7 +1806,7 @@ export default function App(){
                         <span style={{fontSize:"1.5rem",color:"var(--green)"}}>✓</span>
                       </div>
                       <h3>Order Submitted!</h3>
-                      <p>Thank you, {checkoutForm.name}. Your order has been received. {portals[activeClient]?.stripeLink?"Click below to complete payment via Stripe, or we'll":"We'll"} send a payment link to {checkoutForm.email} shortly.</p>
+                      <p>Thank you, {checkoutForm.name}. Your order has been received. {activePortalData.portal?.stripeLink?"Click below to complete payment via Stripe, or we'll":"We'll"} send a payment link to {checkoutForm.email} shortly.</p>
                       <div style={{display:"flex",gap:"1rem",justifyContent:"center",flexWrap:"wrap",marginTop:"1.5rem",marginBottom:"1rem"}}>
                         <button className="btn-primary" onClick={()=>{
                           const today=new Date();
@@ -1611,7 +1815,7 @@ export default function App(){
                           const fmt=d=>d.toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'});
                           generateInvoicePDF({
                             settings,
-                            portal:portals[activeClient],
+                            portal:activePortalData.portal,
                             portalCode:activeClient,
                             checkoutForm,
                             cartItems:cartItems(activeClient),
@@ -1621,8 +1825,8 @@ export default function App(){
                             dueDate:fmt(due),
                           });
                         }}>Download Invoice (PDF)</button>
-                        {portals[activeClient]?.stripeLink&&(
-                          <a href={portals[activeClient].stripeLink} target="_blank" rel="noopener noreferrer">
+                        {activePortalData.portal?.stripeLink&&(
+                          <a href={activePortalData.portal.stripeLink} target="_blank" rel="noopener noreferrer">
                             <button className="btn-outline">Pay via Stripe</button>
                           </a>
                         )}
@@ -1703,7 +1907,7 @@ export default function App(){
                                 if(!checkoutForm.name||!checkoutForm.email){showToast("Please add your name and email.");return;}
                                 setCheckoutDone(true);
                               }}>Submit Order</button>
-                              {portals[activeClient]?.stripeLink&&(
+                              {activePortalData.portal?.stripeLink&&(
                                 <p style={{fontSize:".72rem",color:"var(--ink-muted)",textAlign:"center",marginTop:".75rem"}}>You'll be directed to Stripe for payment after submitting.</p>
                               )}
                               <div className="stripe-badge" style={{marginTop:"1rem"}}>Payments processed securely via Stripe</div>
@@ -1717,9 +1921,9 @@ export default function App(){
               ):(
                 /* PRODUCTS GRID */
                 <div className="client-products">
-                  {portals[activeClient].products.length===0
+                  {activePortalData.products.length===0
                     ?<p style={{color:"var(--ink-muted)",padding:"1rem"}}>No products yet — contact us to get set up.</p>
-                    :portals[activeClient].products.map(p=>{
+                    :activePortalData.products.map(p=>{
                       const placements=p.placements||[];
                       const hasPlacementChoice=placements.length>1;
                       const selPlacementIdx=selectedPlacements[p.id]??0;
