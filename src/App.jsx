@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import PreorderIntakeForm from "./components/PreorderIntakeForm";
+import SalesAdminPanel from "./components/SalesAdminPanel";
 
 const LOGO_URL = "/Shop_1104_Logo.jpg";
 
@@ -7,7 +8,7 @@ const LOGO_URL = "/Shop_1104_Logo.jpg";
 // Maps a browser path like "/preorder" to the internal page name, and back.
 // This is what makes each page a real, shareable link instead of just
 // internal state that resets to the homepage on refresh.
-const ROUTABLE_PAGES = ["about","gallery","catalog","order","clients","admin","preorder"];
+const ROUTABLE_PAGES = ["about","gallery","catalog","order","clients","admin","preorder","salesadmin"];
 function pathToPage(pathname){
   const slug=(pathname||"/").replace(/^\/|\/$/g,"");
   return ROUTABLE_PAGES.includes(slug)?slug:"home";
@@ -685,6 +686,9 @@ export default function App(){
 
   if(!ready) return(<><style>{`body{background:#ebe8e8;display:flex;align-items:center;justify-content:center;height:100vh;font-family:'Jost',sans-serif;color:#52805f;font-size:1rem;letter-spacing:.1em;}`}</style><div>Loading Shop 1104…</div></>);
 
+  // ── Sales & Pricing admin (separate login, manages pre-order sales/products) ──
+  if(page==="salesadmin") return <SalesAdminPanel/>;
+
   // ── Admin gate ──
   if(page==="admin"&&!adminUnlocked) return(
     <>
@@ -745,6 +749,7 @@ export default function App(){
             {[["clients","Client Portals"],["products","Portal Products"],["invoices","Invoices"]].map(([t,l])=>(
               <div key={t} className={`admin-nav${adminTab===t?" active":""}`} onClick={()=>setAdminTab(t)}>{l}</div>
             ))}
+            <div className="admin-nav" onClick={()=>nav("salesadmin")}>Pre-Order Sales →</div>
           </div>
 
           <div className="admin-main">
