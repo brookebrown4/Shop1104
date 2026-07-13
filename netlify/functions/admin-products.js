@@ -28,7 +28,7 @@ exports.handler = async (event) => {
 
     const { data, error } = await supabase
       .from("products")
-      .select("id, name, price_cents, sort_order")
+      .select("id, name, price_cents, sort_order, colors")
       .eq("sale_id", saleId)
       .order("sort_order", { ascending: true });
 
@@ -50,13 +50,18 @@ exports.handler = async (event) => {
   const { action } = body;
 
   if (action === "create") {
-    const { saleId, name, priceCents } = body;
+    const { saleId, name, priceCents, colors } = body;
     if (!saleId || !name || !name.trim() || !Number.isFinite(priceCents)) {
       return { statusCode: 400, body: JSON.stringify({ error: "saleId, name, and priceCents are required." }) };
     }
     const { data, error } = await supabase
       .from("products")
-      .insert({ sale_id: saleId, name: name.trim(), price_cents: Math.round(priceCents) })
+      .insert({
+        sale_id: saleId,
+        name: name.trim(),
+        price_cents: Math.round(priceCents),
+        colors: Array.isArray(colors) ? colors.filter((c) => c && c.trim()) : [],
+      })
       .select()
       .single();
     if (error) return { statusCode: 500, body: JSON.stringify({ error: "Could not create product." }) };
@@ -64,12 +69,13 @@ exports.handler = async (event) => {
   }
 
   if (action === "update") {
-    const { productId, name, priceCents } = body;
+    const { productId, name, priceCents, colors } = body;
     if (!productId) return { statusCode: 400, body: JSON.stringify({ error: "productId is required." }) };
 
     const updates = {};
     if (name && name.trim()) updates.name = name.trim();
     if (Number.isFinite(priceCents)) updates.price_cents = Math.round(priceCents);
+    if (Array.isArray(colors)) updates.colors = colors.filter((c) => c && c.trim());
 
     const { data, error } = await supabase
       .from("products")
