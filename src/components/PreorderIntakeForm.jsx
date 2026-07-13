@@ -30,6 +30,8 @@ export default function PreorderIntakeForm() {
   const [loadError, setLoadError] = useState("");
   const [taxRatePercent, setTaxRatePercent] = useState(0);
   const [feeRatePercent, setFeeRatePercent] = useState(0);
+  const [collectPaymentNow, setCollectPaymentNow] = useState(true);
+  const [orderSubmitted, setOrderSubmitted] = useState(false);
 
   const [form, setForm] = useState(emptyForm);
   const [errors, setErrors] = useState({});
@@ -40,11 +42,12 @@ export default function PreorderIntakeForm() {
     let cancelled = false;
     fetch("/.netlify/functions/get-active-sale")
       .then((res) => { if (!res.ok) throw new Error("Could not load current sale."); return res.json(); })
-      .then(({ sale, products, taxRatePercent, feeRatePercent }) => {
+      .then(({ sale, products, taxRatePercent, feeRatePercent, collectPaymentNow }) => {
         if (cancelled) return;
         setSale(sale); setProducts(products || []);
         setTaxRatePercent(taxRatePercent || 0);
         setFeeRatePercent(feeRatePercent || 0);
+        setCollectPaymentNow(collectPaymentNow !== false);
       })
       .catch((err) => { if (cancelled) return; setLoadError(err.message || "Could not load current sale."); })
       .finally(() => { if (!cancelled) setLoadingSale(false); });
@@ -102,6 +105,15 @@ export default function PreorderIntakeForm() {
       });
       if (!orderRes.ok) { const err = await orderRes.json().catch(() => ({})); throw new Error(err.error || "Could not save your order. Please try again."); }
       const { orderId } = await orderRes.json();
+
+      if (!collectPaymentNow) {
+        // Short-term mode: just take the order, no Stripe checkout.
+        // You'll follow up and invoice each customer directly.
+        setOrderSubmitted(true);
+        setSubmitting(false);
+        return;
+      }
+
       const sessionRes = await fetch("/.netlify/functions/create-checkout-session", {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderId }),
       });
@@ -117,6 +129,19 @@ export default function PreorderIntakeForm() {
   const errorText = (key) => errors[key] ? (
     <p style={{ fontSize: ".72rem", color: "#c0392b", marginTop: ".3rem" }}>{errors[key]}</p>
   ) : null;
+
+  if (orderSubmitted) {
+    return (
+      <div className="section">
+        <p className="section-label">Pre-Order</p>
+        <h2 className="section-title" style={{ marginBottom: "1rem" }}>Order received!</h2>
+        <p className="section-body">
+          Thanks — your pre-order for {sale.name} has been received. Shop 1104 will follow up
+          directly with a bill for your order; no payment is needed here right now.
+        </p>
+      </div>
+    );
+  }
 
   if (loadingSale) {
     return <div className="section"><p className="section-body">Loading current pre-order…</p></div>;
@@ -150,7 +175,9 @@ export default function PreorderIntakeForm() {
         Tell us who it's for, which item, and how many — we'll take it from there.
       </p>
       <p style={{ fontSize: ".8rem", color: "var(--ink-muted)", background: "var(--card-bg)", border: "1px solid var(--border)", borderRadius: 10, padding: ".6rem 1rem", display: "inline-block", marginBottom: "2rem" }}>
-        Note: applicable sales tax and a card processing fee are added at checkout. Shipping costs (if applicable) are billed separately.
+        Note: {collectPaymentNow
+          ? "applicable sales tax and a card processing fee are added at checkout. Shipping costs (if applicable) are billed separately."
+          : "Shop 1104 will follow up directly with a bill for your order, including any tax and shipping costs."}
       </p>
 
       <form onSubmit={handleSubmit} style={{ maxWidth: 640 }}>
@@ -278,23 +305,27 @@ export default function PreorderIntakeForm() {
             <span>Subtotal ({form.garments.length} garment{form.garments.length > 1 ? "s" : ""})</span>
             <span>${(totalCents / 100).toFixed(2)}</span>
           </div>
-          {taxRatePercent > 0 && (
+          {collectPaymentNow && taxRatePercent > 0 && (
             <div style={{ display: "flex", justifyContent: "space-between" }}>
               <span>Sales tax ({taxRatePercent}%)</span>
               <span>${((totalCents * taxRatePercent) / 100 / 100).toFixed(2)}</span>
             </div>
           )}
-          {feeRatePercent > 0 && (
+          {collectPaymentNow && feeRatePercent > 0 && (
             <div style={{ display: "flex", justifyContent: "space-between" }}>
               <span>Card processing fee ({feeRatePercent}%)</span>
               <span>${((totalCents * feeRatePercent) / 100 / 100).toFixed(2)}</span>
             </div>
           )}
           <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 700, color: "var(--ink)", borderTop: "1px solid var(--border)", marginTop: ".5rem", paddingTop: ".5rem" }}>
-            <span>Total due today</span>
-            <span>${((totalCents * (1 + taxRatePercent / 100 + feeRatePercent / 100)) / 100).toFixed(2)}</span>
+            <span>{collectPaymentNow ? "Total due today" : "Estimated total"}</span>
+            <span>${collectPaymentNow
+              ? ((totalCents * (1 + taxRatePercent / 100 + feeRatePercent / 100)) / 100).toFixed(2)
+              : (totalCents / 100).toFixed(2)}</span>
           </div>
-          <p style={{ fontSize: ".72rem", marginTop: ".5rem", marginBottom: 0 }}>Shipping (if applicable) billed separately.</p>
+          <p style={{ fontSize: ".72rem", marginTop: ".5rem", marginBottom: 0 }}>
+            {collectPaymentNow ? "Shipping (if applicable) billed separately." : "A bill including tax and shipping will follow separately."}
+          </p>
         </div>
 
         {submitError && (
@@ -304,7 +335,9 @@ export default function PreorderIntakeForm() {
         )}
 
         <button type="submit" disabled={submitting} className="btn-primary" style={{ width: "100%", textAlign: "center", opacity: submitting ? .7 : 1, cursor: submitting ? "not-allowed" : "pointer" }}>
-          {submitting ? "Redirecting to payment…" : "Continue to Payment"}
+          {submitting
+            ? (collectPaymentNow ? "Redirecting to payment…" : "Submitting…")
+            : (collectPaymentNow ? "Continue to Payment" : "Submit Pre-Order")}
         </button>
       </form>
     </div>
