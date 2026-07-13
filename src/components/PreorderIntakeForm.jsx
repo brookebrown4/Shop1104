@@ -28,6 +28,8 @@ export default function PreorderIntakeForm() {
   const [sale, setSale] = useState(null);
   const [products, setProducts] = useState([]);
   const [loadError, setLoadError] = useState("");
+  const [taxRatePercent, setTaxRatePercent] = useState(0);
+  const [feeRatePercent, setFeeRatePercent] = useState(0);
 
   const [form, setForm] = useState(emptyForm);
   const [errors, setErrors] = useState({});
@@ -38,7 +40,12 @@ export default function PreorderIntakeForm() {
     let cancelled = false;
     fetch("/.netlify/functions/get-active-sale")
       .then((res) => { if (!res.ok) throw new Error("Could not load current sale."); return res.json(); })
-      .then(({ sale, products }) => { if (cancelled) return; setSale(sale); setProducts(products || []); })
+      .then(({ sale, products, taxRatePercent, feeRatePercent }) => {
+        if (cancelled) return;
+        setSale(sale); setProducts(products || []);
+        setTaxRatePercent(taxRatePercent || 0);
+        setFeeRatePercent(feeRatePercent || 0);
+      })
       .catch((err) => { if (cancelled) return; setLoadError(err.message || "Could not load current sale."); })
       .finally(() => { if (!cancelled) setLoadingSale(false); });
     return () => { cancelled = true; };
@@ -143,7 +150,7 @@ export default function PreorderIntakeForm() {
         Tell us who it's for, which item, and how many — we'll take it from there.
       </p>
       <p style={{ fontSize: ".8rem", color: "var(--ink-muted)", background: "var(--card-bg)", border: "1px solid var(--border)", borderRadius: 10, padding: ".6rem 1rem", display: "inline-block", marginBottom: "2rem" }}>
-        Note: applicable sales tax and shipping costs are the customer's responsibility and are not included in the item price.
+        Note: applicable sales tax and a card processing fee are added at checkout. Shipping costs (if applicable) are billed separately.
       </p>
 
       <form onSubmit={handleSubmit} style={{ maxWidth: 640 }}>
@@ -266,9 +273,29 @@ export default function PreorderIntakeForm() {
           )}
         </div>
 
-        <p style={{ fontSize: ".82rem", color: "var(--ink-muted)", textAlign: "center", marginBottom: "1rem" }}>
-          Total due today: ${(totalCents / 100).toFixed(2)} for {form.garments.length} garment{form.garments.length > 1 ? "s" : ""} · tax and shipping billed separately
-        </p>
+        <div style={{ background: "var(--card-bg)", border: "1px solid var(--border)", borderRadius: 10, padding: "1rem", marginBottom: "1rem", fontSize: ".85rem", color: "var(--ink-soft)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between" }}>
+            <span>Subtotal ({form.garments.length} garment{form.garments.length > 1 ? "s" : ""})</span>
+            <span>${(totalCents / 100).toFixed(2)}</span>
+          </div>
+          {taxRatePercent > 0 && (
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <span>Sales tax ({taxRatePercent}%)</span>
+              <span>${((totalCents * taxRatePercent) / 100 / 100).toFixed(2)}</span>
+            </div>
+          )}
+          {feeRatePercent > 0 && (
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <span>Card processing fee ({feeRatePercent}%)</span>
+              <span>${((totalCents * feeRatePercent) / 100 / 100).toFixed(2)}</span>
+            </div>
+          )}
+          <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 700, color: "var(--ink)", borderTop: "1px solid var(--border)", marginTop: ".5rem", paddingTop: ".5rem" }}>
+            <span>Total due today</span>
+            <span>${((totalCents * (1 + taxRatePercent / 100 + feeRatePercent / 100)) / 100).toFixed(2)}</span>
+          </div>
+          <p style={{ fontSize: ".72rem", marginTop: ".5rem", marginBottom: 0 }}>Shipping (if applicable) billed separately.</p>
+        </div>
 
         {submitError && (
           <p style={{ fontSize: ".82rem", textAlign: "center", background: "var(--card-bg)", border: "1px solid var(--border)", borderRadius: 10, padding: ".6rem 1rem", color: "#c0392b", marginBottom: "1rem" }}>
