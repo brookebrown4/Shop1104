@@ -50,7 +50,7 @@ exports.handler = async (event) => {
   const productIds = [...new Set(garments.map((g) => g.productId))];
   const { data: products, error: prodErr } = await supabase
     .from("products")
-    .select("id, name, price_cents")
+    .select("id, name, price_cents, colors")
     .eq("sale_id", saleId)
     .in("id", productIds);
 
@@ -70,6 +70,9 @@ exports.handler = async (event) => {
     }
     if (!g.color || !g.color.trim() || !g.size) {
       return { statusCode: 400, body: JSON.stringify({ error: "Each garment needs a color and size." }) };
+    }
+    if (Array.isArray(product.colors) && product.colors.length > 0 && !product.colors.includes(g.color)) {
+      return { statusCode: 400, body: JSON.stringify({ error: `"${g.color}" isn't an available color for ${product.name}.` }) };
     }
     amountCents += product.price_cents;
     enrichedGarments.push({
