@@ -3,9 +3,16 @@
 // Admin-only. Manages products (priced items) within a sale. Gated by the
 // same x-admin-code header as admin-sales.js.
 //
+// Each product can define its own:
+//   - sizes: [{ name, extraCost }]  -- if empty, a generic size list is used
+//   - colors: [{ name, extraCost }] -- if empty, no color choice is shown
+//   - logos:  [{ name, extraCost }] -- if empty, no logo/design choice is shown
+//   - image: a base64 photo (optional)
+// extraCost is added on top of the base price when a customer picks that option.
+//
 // GET ?saleId=...              -> list products for a sale
-// POST { action: "create", saleId, name, priceCents }
-// POST { action: "update", productId, name, priceCents }
+// POST { action: "create", saleId, name, priceCents, sizes?, colors?, logos?, image? }
+// POST { action: "update", productId, name, priceCents, sizes?, colors?, logos?, image? }
 // POST { action: "delete", productId }
 
 const { createClient } = require("@supabase/supabase-js");
@@ -15,6 +22,13 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
 function isAuthorized(event) {
   const code = event.headers["x-admin-code"];
   return code && process.env.ADMIN_ACCESS_CODE && code === process.env.ADMIN_ACCESS_CODE;
+}
+
+function cleanOptionList(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter((o) => o && o.name && o.name.trim())
+    .map((o) => ({ name: o.name.trim(), extraCost: Number.isFinite(Number(o.extraCost)) ? Math.round(Number(o.extraCost) * 100) : 0 }));
 }
 
 exports.handler = async (event) => {
@@ -28,7 +42,7 @@ exports.handler = async (event) => {
 
     const { data, error } = await supabase
       .from("products")
-      .select("id, name, price_cents, sort_order, colors")
+      .select("id, name, price_cents, sort_order, colors, sizes, logos, image_data")
       .eq("sale_id", saleId)
       .order("sort_order", { ascending: true });
 
@@ -50,7 +64,7 @@ exports.handler = async (event) => {
   const { action } = body;
 
   if (action === "create") {
-    const { saleId, name, priceCents, colors } = body;
+    const { saleId, name, priceCents } = body;
     if (!saleId || !name || !name.trim() || !Number.isFinite(priceCents)) {
       return { statusCode: 400, body: JSON.stringify({ error: "saleId, name, and priceCents are required." }) };
     }
@@ -60,7 +74,10 @@ exports.handler = async (event) => {
         sale_id: saleId,
         name: name.trim(),
         price_cents: Math.round(priceCents),
-        colors: Array.isArray(colors) ? colors.filter((c) => c && c.trim()) : [],
+        colors: cleanOptionList(body.colors),
+        sizes: cleanOptionList(body.sizes),
+        logos: cleanOptionList(body.logos),
+        image_data: body.image || null,
       })
       .select()
       .single();
@@ -69,13 +86,16 @@ exports.handler = async (event) => {
   }
 
   if (action === "update") {
-    const { productId, name, priceCents, colors } = body;
+    const { productId, name, priceCents } = body;
     if (!productId) return { statusCode: 400, body: JSON.stringify({ error: "productId is required." }) };
 
     const updates = {};
     if (name && name.trim()) updates.name = name.trim();
     if (Number.isFinite(priceCents)) updates.price_cents = Math.round(priceCents);
-    if (Array.isArray(colors)) updates.colors = colors.filter((c) => c && c.trim());
+    if (body.colors !== undefined) updates.colors = cleanOptionList(body.colors);
+    if (body.sizes !== undefined) updates.sizes = cleanOptionList(body.sizes);
+    if (body.logos !== undefined) updates.logos = cleanOptionList(body.logos);
+    if (body.image !== undefined) updates.image_data = body.image || null;
 
     const { data, error } = await supabase
       .from("products")
