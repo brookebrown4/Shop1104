@@ -42,7 +42,7 @@ exports.handler = async (event) => {
 
     const { data, error } = await supabase
       .from("products")
-      .select("id, name, price_cents, sort_order, colors, sizes, logos, image_data")
+      .select("id, name, price_cents, sort_order, colors, sizes, logos, image_data, custom_text_enabled, custom_text_label")
       .eq("sale_id", saleId)
       .order("sort_order", { ascending: true });
 
@@ -78,6 +78,8 @@ exports.handler = async (event) => {
         sizes: cleanOptionList(body.sizes),
         logos: cleanOptionList(body.logos),
         image_data: body.image || null,
+        custom_text_enabled: !!body.customTextEnabled,
+        custom_text_label: (body.customTextLabel && body.customTextLabel.trim()) || "Custom Name",
       })
       .select()
       .single();
@@ -96,6 +98,8 @@ exports.handler = async (event) => {
     if (body.sizes !== undefined) updates.sizes = cleanOptionList(body.sizes);
     if (body.logos !== undefined) updates.logos = cleanOptionList(body.logos);
     if (body.image !== undefined) updates.image_data = body.image || null;
+    if (body.customTextEnabled !== undefined) updates.custom_text_enabled = !!body.customTextEnabled;
+    if (body.customTextLabel !== undefined) updates.custom_text_label = (body.customTextLabel && body.customTextLabel.trim()) || "Custom Name";
 
     const { data, error } = await supabase
       .from("products")
