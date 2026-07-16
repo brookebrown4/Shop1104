@@ -15,7 +15,7 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
 async function loadProductsFor(saleId) {
   const { data: products, error } = await supabase
     .from("products")
-    .select("id, name, price_cents, colors, sizes, logos, image_data")
+    .select("id, name, price_cents, colors, sizes, logos, image_data, custom_text_enabled, custom_text_label")
     .eq("sale_id", saleId)
     .order("sort_order", { ascending: true });
   if (error) throw error;
@@ -27,6 +27,8 @@ async function loadProductsFor(saleId) {
     sizes: p.sizes || [],
     logos: p.logos || [],
     image: p.image_data || "",
+    customTextEnabled: !!p.custom_text_enabled,
+    customTextLabel: p.custom_text_label || "Custom Name",
   }));
 }
 
