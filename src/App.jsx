@@ -1797,7 +1797,7 @@ export default function App(){
         </div>}
 
         {/* PRE-ORDER */}
-        {page==="preorder"&&<PreorderIntakeForm slug={preorderSlug} onChooseSlug={navToPreorderSlug}/>
+        {page==="preorder"&&<PreorderIntakeForm slug={preorderSlug} onChooseSlug={navToPreorderSlug}/>}
 
         {/* CLIENT PORTAL */}
         {page==="clients"&&<>
