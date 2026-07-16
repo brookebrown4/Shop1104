@@ -10,8 +10,14 @@ const LOGO_URL = "/Shop_1104_Logo.jpg";
 // internal state that resets to the homepage on refresh.
 const ROUTABLE_PAGES = ["about","gallery","catalog","order","clients","admin","preorder","salesadmin"];
 function pathToPage(pathname){
-  const slug=(pathname||"/").replace(/^\/|\/$/g,"");
+  const parts=(pathname||"/").replace(/^\/|\/$/g,"").split("/");
+  const slug=parts[0]||"";
   return ROUTABLE_PAGES.includes(slug)?slug:"home";
+}
+// For /preorder/some-slug, returns "some-slug"; for bare /preorder, returns null.
+function pathToPreorderSlug(pathname){
+  const parts=(pathname||"/").replace(/^\/|\/$/g,"").split("/");
+  return parts[0]==="preorder" && parts[1] ? parts[1] : null;
 }
 function pageToPath(page){
   return page==="home" ? "/" : `/${page}`;
@@ -485,6 +491,7 @@ function generateInvoicePDF({settings, portal, portalCode, checkoutForm, cartIte
 export default function App(){
   const [ready,setReady]=useState(false);
   const [page,setPage]=useState(()=>pathToPage(window.location.pathname));
+  const [preorderSlug,setPreorderSlug]=useState(()=>pathToPreorderSlug(window.location.pathname));
 
   // Admin auth: no password lives in the browser. The code the person types
   // is only ever sent as a header and checked server-side.
@@ -566,14 +573,22 @@ export default function App(){
   const showToast=(msg)=>{setToast(msg);setTimeout(()=>setToast(null),3200);};
   const nav=(p)=>{
     setPage(p);
+    if(p!=="preorder") setPreorderSlug(null);
     const path=pageToPath(p);
+    if(window.location.pathname!==path) window.history.pushState({},"",path);
+    window.scrollTo(0,0);
+  };
+  const navToPreorderSlug=(slug)=>{
+    setPage("preorder");
+    setPreorderSlug(slug);
+    const path=`/preorder/${slug}`;
     if(window.location.pathname!==path) window.history.pushState({},"",path);
     window.scrollTo(0,0);
   };
 
   // Keep state in sync with the browser's back/forward buttons.
   useEffect(()=>{
-    const onPop=()=>setPage(pathToPage(window.location.pathname));
+    const onPop=()=>{setPage(pathToPage(window.location.pathname));setPreorderSlug(pathToPreorderSlug(window.location.pathname));};
     window.addEventListener("popstate",onPop);
     return ()=>window.removeEventListener("popstate",onPop);
   },[]);
@@ -1782,7 +1797,7 @@ export default function App(){
         </div>}
 
         {/* PRE-ORDER */}
-        {page==="preorder"&&<PreorderIntakeForm/>}
+        {page==="preorder"&&<PreorderIntakeForm slug={preorderSlug} onChooseSlug={navToPreorderSlug}/>
 
         {/* CLIENT PORTAL */}
         {page==="clients"&&<>
