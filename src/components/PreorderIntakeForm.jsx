@@ -3,19 +3,25 @@ import { useState, useEffect } from "react";
 /**
  * Shop 1104 — Pre-Order Intake Form
  *
- * Restyled to match the rest of the site (same CSS variables and classes
- * from App.jsx's buildCSS — --green, --ink, --card-bg, --border, .btn-primary,
- * .form-group, etc.) instead of Tailwind, which isn't installed in this
- * project. Rendered as a normal page inside App.jsx's <div className="page">,
- * so it inherits the site's global styles automatically.
+ * Props:
+ *   slug         - optional, from the URL (/preorder/some-slug). If given,
+ *                  loads that specific sale. If omitted, loads whichever
+ *                  single sale is active, or shows a picker if more than
+ *                  one sale is active at once.
+ *   onChooseSlug - called with a slug when the customer picks a sale from
+ *                  that picker, so the parent can update the URL.
+ *
+ * Each product can define its own sizes, colors, and logos/designs, each
+ * optionally with an extra cost added to the base price. If a product
+ * doesn't define a given option list, that choice is simply skipped.
  */
 
-const SIZE_OPTIONS = [
+const FALLBACK_SIZES = [
   "Youth S","Youth M","Youth L",
   "Adult S","Adult M","Adult L","Adult XL","Adult 2XL","Adult 3XL","Adult 4XL",
 ];
 
-const emptyGarment = () => ({ productId: "", color: "", size: "" });
+const emptyGarment = () => ({ productId: "", color: "", size: "", logo: "" });
 const emptyForm = {
   name: "", email: "", phone: "",
   garments: [emptyGarment()],
@@ -23,10 +29,16 @@ const emptyForm = {
   address: { line1: "", line2: "", city: "", state: "", zip: "" },
 };
 
-export default function PreorderIntakeForm() {
+function optionCostLabel(extraCost) {
+  if (!extraCost) return "";
+  return ` (+$${(extraCost / 100).toFixed(2)})`;
+}
+
+export default function PreorderIntakeForm({ slug, onChooseSlug }) {
   const [loadingSale, setLoadingSale] = useState(true);
   const [sale, setSale] = useState(null);
   const [products, setProducts] = useState([]);
+  const [multipleSales, setMultipleSales] = useState(null);
   const [loadError, setLoadError] = useState("");
   const [taxRatePercent, setTaxRatePercent] = useState(0);
   const [feeRatePercent, setFeeRatePercent] = useState(0);
@@ -40,19 +52,30 @@ export default function PreorderIntakeForm() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/.netlify/functions/get-active-sale")
+    setLoadingSale(true);
+    setMultipleSales(null);
+    setLoadError("");
+    const url = slug
+      ? `/.netlify/functions/get-active-sale?slug=${encodeURIComponent(slug)}`
+      : "/.netlify/functions/get-active-sale";
+    fetch(url)
       .then((res) => { if (!res.ok) throw new Error("Could not load current sale."); return res.json(); })
-      .then(({ sale, products, taxRatePercent, feeRatePercent, collectPaymentNow }) => {
+      .then((data) => {
         if (cancelled) return;
-        setSale(sale); setProducts(products || []);
-        setTaxRatePercent(taxRatePercent || 0);
-        setFeeRatePercent(feeRatePercent || 0);
-        setCollectPaymentNow(collectPaymentNow !== false);
+        if (data.multipleSales) {
+          setMultipleSales(data.multipleSales);
+        } else {
+          setSale(data.sale);
+          setProducts(data.products || []);
+        }
+        setTaxRatePercent(data.taxRatePercent || 0);
+        setFeeRatePercent(data.feeRatePercent || 0);
+        setCollectPaymentNow(data.collectPaymentNow !== false);
       })
       .catch((err) => { if (cancelled) return; setLoadError(err.message || "Could not load current sale."); })
       .finally(() => { if (!cancelled) setLoadingSale(false); });
     return () => { cancelled = true; };
-  }, []);
+  }, [slug]);
 
   const productById = (id) => products.find((p) => p.id === id);
   const updateField = (field, value) => setForm((f) => ({ ...f, [field]: value }));
@@ -63,10 +86,21 @@ export default function PreorderIntakeForm() {
   const removeGarment = (index) =>
     setForm((f) => ({ ...f, garments: f.garments.length > 1 ? f.garments.filter((_, i) => i !== index) : f.garments }));
 
-  const totalCents = form.garments.reduce((sum, g) => {
+  // Computes one garment's full price: base + size extra + color extra + logo extra.
+  const garmentPriceCents = (g) => {
     const product = productById(g.productId);
-    return sum + (product ? product.price_cents : 0);
-  }, 0);
+    if (!product) return 0;
+    let total = product.price_cents;
+    const size = (product.sizes || []).find((s) => s.name === g.size);
+    if (size) total += size.extraCost || 0;
+    const color = (product.colors || []).find((c) => c.name === g.color);
+    if (color) total += color.extraCost || 0;
+    const logo = (product.logos || []).find((l) => l.name === g.logo);
+    if (logo) total += logo.extraCost || 0;
+    return total;
+  };
+
+  const totalCents = form.garments.reduce((sum, g) => sum + garmentPriceCents(g), 0);
 
   const validate = () => {
     const errs = {};
@@ -75,9 +109,11 @@ export default function PreorderIntakeForm() {
     else if (!/^\S+@\S+\.\S+$/.test(form.email)) errs.email = "Enter a valid email.";
     if (!form.phone.trim()) errs.phone = "Phone number is required.";
     form.garments.forEach((g, i) => {
-      if (!g.productId) errs[`garment-${i}-productId`] = "Choose an item.";
-      if (!g.color.trim()) errs[`garment-${i}-color`] = "Color is required.";
+      const product = productById(g.productId);
+      if (!product) { errs[`garment-${i}-productId`] = "Choose an item."; return; }
       if (!g.size) errs[`garment-${i}-size`] = "Pick a size.";
+      if ((product.colors || []).length > 0 && !g.color) errs[`garment-${i}-color`] = "Choose a color.";
+      if ((product.logos || []).length > 0 && !g.logo) errs[`garment-${i}-logo`] = "Choose a logo/design.";
     });
     if (form.fulfillment === "ship") {
       if (!form.address.line1.trim()) errs.line1 = "Address is required.";
@@ -96,7 +132,7 @@ export default function PreorderIntakeForm() {
     setSubmitError(""); setSubmitting(true);
     const payload = {
       name: form.name, email: form.email, phone: form.phone, saleId: sale.id,
-      garments: form.garments.map((g) => ({ productId: g.productId, color: g.color, size: g.size })),
+      garments: form.garments.map((g) => ({ productId: g.productId, color: g.color, size: g.size, logo: g.logo })),
       fulfillment: form.fulfillment, address: form.address,
     };
     try {
@@ -107,8 +143,6 @@ export default function PreorderIntakeForm() {
       const { orderId } = await orderRes.json();
 
       if (!collectPaymentNow) {
-        // Short-term mode: just take the order, no Stripe checkout.
-        // You'll follow up and invoice each customer directly.
         setOrderSubmitted(true);
         setSubmitting(false);
         return;
@@ -145,6 +179,23 @@ export default function PreorderIntakeForm() {
 
   if (loadingSale) {
     return <div className="section"><p className="section-body">Loading current pre-order…</p></div>;
+  }
+
+  if (multipleSales) {
+    return (
+      <div className="section">
+        <p className="section-label">Pre-Order</p>
+        <h2 className="section-title" style={{ marginBottom: "1rem" }}>Choose a pre-order</h2>
+        <p className="section-body" style={{ marginBottom: "1.5rem" }}>More than one pre-order is running right now — pick one below.</p>
+        <div style={{ display: "flex", flexDirection: "column", gap: ".75rem", maxWidth: 420 }}>
+          {multipleSales.map((s) => (
+            <button key={s.slug} type="button" className="btn-outline" onClick={() => onChooseSlug && onChooseSlug(s.slug)}>
+              {s.name}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
   }
 
   if (loadError || !sale) {
@@ -207,57 +258,81 @@ export default function PreorderIntakeForm() {
             <button type="button" className="btn-sm-green" onClick={addGarment}>+ Add garment</button>
           </div>
 
-          {form.garments.map((g, i) => (
-            <div key={i} className="acard" style={{ border: "1.5px dashed var(--border)" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: ".75rem" }}>
-                <span style={{ fontSize: ".72rem", letterSpacing: ".1em", textTransform: "uppercase", color: "var(--green)", fontWeight: 600 }}>
-                  Garment No. {String(i + 1).padStart(2, "0")}
-                </span>
-                {form.garments.length > 1 && (
-                  <button type="button" className="btn-sm-danger" onClick={() => removeGarment(i)}>Remove</button>
+          {form.garments.map((g, i) => {
+            const product = productById(g.productId);
+            const sizeOptions = product && product.sizes && product.sizes.length > 0 ? product.sizes : null;
+            const colorOptions = product ? product.colors || [] : [];
+            const logoOptions = product ? product.logos || [] : [];
+            return (
+              <div key={i} className="acard" style={{ border: "1.5px dashed var(--border)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: ".75rem" }}>
+                  <span style={{ fontSize: ".72rem", letterSpacing: ".1em", textTransform: "uppercase", color: "var(--green)", fontWeight: 600 }}>
+                    Garment No. {String(i + 1).padStart(2, "0")}
+                  </span>
+                  {form.garments.length > 1 && (
+                    <button type="button" className="btn-sm-danger" onClick={() => removeGarment(i)}>Remove</button>
+                  )}
+                </div>
+
+                <div className="form-group" style={{ marginBottom: ".75rem" }}>
+                  <label>Item</label>
+                  <select value={g.productId} onChange={(e) => { updateGarment(i, "productId", e.target.value); updateGarment(i, "color", ""); updateGarment(i, "size", ""); updateGarment(i, "logo", ""); }}>
+                    <option value="">Choose item…</option>
+                    {products.map((p) => (
+                      <option key={p.id} value={p.id}>{p.name} — ${(p.price_cents / 100).toFixed(2)}</option>
+                    ))}
+                  </select>
+                  {errorText(`garment-${i}-productId`)}
+                </div>
+
+                {product && product.image && (
+                  <div style={{ marginBottom: ".75rem" }}>
+                    <img src={product.image} alt={product.name} style={{ width: "100%", maxHeight: 180, objectFit: "cover", borderRadius: 8 }} />
+                  </div>
+                )}
+
+                {product && logoOptions.length > 0 && (
+                  <div className="form-group" style={{ marginBottom: ".75rem" }}>
+                    <label>Logo / Design</label>
+                    <select value={g.logo} onChange={(e) => updateGarment(i, "logo", e.target.value)}>
+                      <option value="">Choose logo/design…</option>
+                      {logoOptions.map((l) => <option key={l.name} value={l.name}>{l.name}{optionCostLabel(l.extraCost)}</option>)}
+                    </select>
+                    {errorText(`garment-${i}-logo`)}
+                  </div>
+                )}
+
+                <div className="form-row">
+                  <div className="form-group"><label>Color</label>
+                    {colorOptions.length > 0 ? (
+                      <select value={g.color} onChange={(e) => updateGarment(i, "color", e.target.value)}>
+                        <option value="">Choose color…</option>
+                        {colorOptions.map((c) => <option key={c.name} value={c.name}>{c.name}{optionCostLabel(c.extraCost)}</option>)}
+                      </select>
+                    ) : (
+                      <input type="text" value={g.color} onChange={(e) => updateGarment(i, "color", e.target.value)} placeholder="e.g. Heather Gray" disabled={!g.productId} />
+                    )}
+                    {errorText(`garment-${i}-color`)}
+                  </div>
+                  <div className="form-group"><label>Size</label>
+                    <select value={g.size} onChange={(e) => updateGarment(i, "size", e.target.value)}>
+                      <option value="">Choose size…</option>
+                      {(sizeOptions || FALLBACK_SIZES.map((n) => ({ name: n, extraCost: 0 }))).map((s) => (
+                        <option key={s.name} value={s.name}>{s.name}{optionCostLabel(s.extraCost)}</option>
+                      ))}
+                    </select>
+                    {errorText(`garment-${i}-size`)}
+                  </div>
+                </div>
+
+                {product && (
+                  <p style={{ fontSize: ".78rem", color: "var(--ink-muted)", marginTop: ".6rem", textAlign: "right" }}>
+                    Line price: ${(garmentPriceCents(g) / 100).toFixed(2)}
+                  </p>
                 )}
               </div>
-
-              <div className="form-group" style={{ marginBottom: ".75rem" }}>
-                <label>Item</label>
-                <select value={g.productId} onChange={(e) => { updateGarment(i, "productId", e.target.value); updateGarment(i, "color", ""); }}>
-                  <option value="">Choose item…</option>
-                  {products.map((p) => (
-                    <option key={p.id} value={p.id}>{p.name} — ${(p.price_cents / 100).toFixed(2)}</option>
-                  ))}
-                </select>
-                {errorText(`garment-${i}-productId`)}
-              </div>
-
-              <div className="form-row">
-                <div className="form-group"><label>Color</label>
-                  {(() => {
-                    const selectedProduct = productById(g.productId);
-                    const availableColors = selectedProduct?.colors || [];
-                    if (availableColors.length > 0) {
-                      return (
-                        <select value={g.color} onChange={(e) => updateGarment(i, "color", e.target.value)}>
-                          <option value="">Choose color…</option>
-                          {availableColors.map((c) => <option key={c} value={c}>{c}</option>)}
-                        </select>
-                      );
-                    }
-                    return (
-                      <input type="text" value={g.color} onChange={(e) => updateGarment(i, "color", e.target.value)} placeholder="e.g. Heather Gray" disabled={!g.productId} />
-                    );
-                  })()}
-                  {errorText(`garment-${i}-color`)}
-                </div>
-                <div className="form-group"><label>Size</label>
-                  <select value={g.size} onChange={(e) => updateGarment(i, "size", e.target.value)}>
-                    <option value="">Choose size…</option>
-                    {SIZE_OPTIONS.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
-                  </select>
-                  {errorText(`garment-${i}-size`)}
-                </div>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         {/* Fulfillment */}
