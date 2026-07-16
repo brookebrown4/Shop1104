@@ -1,82 +1,149 @@
-// netlify/functions/get-active-sale.js
+// netlify/functions/submit-order.js
 //
-// Public, read-only. Powers the customer-facing pre-order page.
+// Saves an incoming pre-order to Supabase with status "pending", before
+// the customer is sent to Stripe to pay. Prices are looked up and computed
+// server-side from the active sale's products -- the browser only ever
+// sends which options were picked (size/color/logo names), never prices,
+// so nothing about the charge can be tampered with client-side.
 //
-// GET ?slug=summer-2026-a1b2  -> that specific sale (if it's active) + its products
-// GET (no slug)               -> looks at ALL currently active sales:
-//     - 0 active   -> { sale: null, products: [] }
-//     - 1 active   -> that sale + its products (same as before, for backward compatibility)
-//     - 2+ active  -> { multipleSales: [{ slug, name }, ...] } so the page can show a picker
+// Per-garment price = product's base price
+//                    + that size's extraCost (if the product defines sizes)
+//                    + that color's extraCost (if the product defines colors)
+//                    + that logo's extraCost (if the product defines logos)
 
 const { createClient } = require("@supabase/supabase-js");
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
-async function loadProductsFor(saleId) {
-  const { data: products, error } = await supabase
-    .from("products")
-    .select("id, name, price_cents, colors, sizes, logos, image_data")
-    .eq("sale_id", saleId)
-    .order("sort_order", { ascending: true });
-  if (error) throw error;
-  return (products || []).map((p) => ({
-    id: p.id,
-    name: p.name,
-    price_cents: p.price_cents,
-    colors: p.colors || [],
-    sizes: p.sizes || [],
-    logos: p.logos || [],
-    image: p.image_data || "",
-  }));
+// Looks up the extraCost for a chosen option name within a product's option
+// list. If the product doesn't define any options for this dimension, the
+// choice is optional and contributes no extra cost. Returns null if the
+// product DOES define options but the chosen one isn't among them (invalid).
+function resolveOption(optionList, chosenName) {
+  if (!Array.isArray(optionList) || optionList.length === 0) {
+    return { required: false, valid: true, extraCost: 0 };
+  }
+  const match = optionList.find((o) => o.name === chosenName);
+  if (!match) return { required: true, valid: false, extraCost: 0 };
+  return { required: true, valid: true, extraCost: match.extraCost || 0 };
 }
 
 exports.handler = async (event) => {
-  if (event.httpMethod !== "GET") {
+  if (event.httpMethod !== "POST") {
     return { statusCode: 405, body: "Method Not Allowed" };
   }
 
-  const extras = {
-    taxRatePercent: Number(process.env.TAX_RATE_PERCENT || 0),
-    feeRatePercent: Number(process.env.PROCESSING_FEE_PERCENT || 0),
-    collectPaymentNow: process.env.COLLECT_PAYMENT_NOW !== "false",
-  };
-
-  const slug = event.queryStringParameters && event.queryStringParameters.slug;
-
+  let order;
   try {
-    if (slug) {
-      const { data: sale, error } = await supabase
-        .from("sales")
-        .select("id, name, slug, is_active")
-        .eq("slug", slug)
-        .maybeSingle();
-      if (error) throw error;
-      if (!sale || !sale.is_active) {
-        return { statusCode: 200, body: JSON.stringify({ sale: null, products: [], ...extras }) };
-      }
-      const products = await loadProductsFor(sale.id);
-      return { statusCode: 200, body: JSON.stringify({ sale: { id: sale.id, name: sale.name, slug: sale.slug }, products, ...extras }) };
-    }
-
-    // No slug given -- look at every currently active sale.
-    const { data: activeSales, error } = await supabase
-      .from("sales")
-      .select("id, name, slug")
-      .eq("is_active", true)
-      .order("created_at", { ascending: false });
-    if (error) throw error;
-
-    if (!activeSales || activeSales.length === 0) {
-      return { statusCode: 200, body: JSON.stringify({ sale: null, products: [], ...extras }) };
-    }
-    if (activeSales.length > 1) {
-      return { statusCode: 200, body: JSON.stringify({ sale: null, products: [], multipleSales: activeSales, ...extras }) };
-    }
-    const sale = activeSales[0];
-    const products = await loadProductsFor(sale.id);
-    return { statusCode: 200, body: JSON.stringify({ sale, products, ...extras }) };
-  } catch (err) {
-    console.error("get-active-sale error:", err);
-    return { statusCode: 500, body: JSON.stringify({ error: "Could not load pre-order info." }) };
+    order = JSON.parse(event.body);
+  } catch {
+    return { statusCode: 400, body: JSON.stringify({ error: "Invalid JSON body." }) };
   }
+
+  const { name, email, phone, saleId, garments, fulfillment, address } = order || {};
+
+  if (!name || !email || !phone || !saleId || !Array.isArray(garments) || garments.length === 0) {
+    return { statusCode: 400, body: JSON.stringify({ error: "Missing required order fields." }) };
+  }
+
+  const { data: sale, error: saleErr } = await supabase
+    .from("sales")
+    .select("id")
+    .eq("id", saleId)
+    .eq("is_active", true)
+    .maybeSingle();
+
+  if (saleErr) {
+    console.error("Supabase error (sale check):", saleErr);
+    return { statusCode: 500, body: JSON.stringify({ error: "Could not verify sale." }) };
+  }
+  if (!sale) {
+    return { statusCode: 400, body: JSON.stringify({ error: "This sale is no longer active." }) };
+  }
+
+  const productIds = [...new Set(garments.map((g) => g.productId))];
+  const { data: products, error: prodErr } = await supabase
+    .from("products")
+    .select("id, name, price_cents, colors, sizes, logos")
+    .eq("sale_id", saleId)
+    .in("id", productIds);
+
+  if (prodErr) {
+    console.error("Supabase error (products lookup):", prodErr);
+    return { statusCode: 500, body: JSON.stringify({ error: "Could not price order." }) };
+  }
+
+  const productMap = new Map(products.map((p) => [p.id, p]));
+
+  let amountCents = 0;
+  const enrichedGarments = [];
+  for (const g of garments) {
+    const product = productMap.get(g.productId);
+    if (!product) {
+      return { statusCode: 400, body: JSON.stringify({ error: "One or more items are no longer available." }) };
+    }
+    if (!g.size) {
+      return { statusCode: 400, body: JSON.stringify({ error: `Please choose a size for ${product.name}.` }) };
+    }
+
+    const sizeResult = resolveOption(product.sizes, g.size);
+    if (!sizeResult.valid) {
+      return { statusCode: 400, body: JSON.stringify({ error: `"${g.size}" isn't an available size for ${product.name}.` }) };
+    }
+
+    const colorOptions = product.colors || [];
+    if (colorOptions.length > 0 && !g.color) {
+      return { statusCode: 400, body: JSON.stringify({ error: `Please choose a color for ${product.name}.` }) };
+    }
+    const colorResult = resolveOption(product.colors, g.color);
+    if (!colorResult.valid) {
+      return { statusCode: 400, body: JSON.stringify({ error: `"${g.color}" isn't an available color for ${product.name}.` }) };
+    }
+
+    const logoOptions = product.logos || [];
+    if (logoOptions.length > 0 && !g.logo) {
+      return { statusCode: 400, body: JSON.stringify({ error: `Please choose a logo/design for ${product.name}.` }) };
+    }
+    const logoResult = resolveOption(product.logos, g.logo);
+    if (!logoResult.valid) {
+      return { statusCode: 400, body: JSON.stringify({ error: `"${g.logo}" isn't an available logo for ${product.name}.` }) };
+    }
+
+    const finalPriceCents = product.price_cents + sizeResult.extraCost + colorResult.extraCost + logoResult.extraCost;
+    amountCents += finalPriceCents;
+    enrichedGarments.push({
+      product_id: product.id,
+      product_name: product.name,
+      price_cents: finalPriceCents,
+      color: g.color ? g.color.trim() : "",
+      size: g.size,
+      logo: g.logo ? g.logo.trim() : "",
+    });
+  }
+
+  const { data, error } = await supabase
+    .from("orders")
+    .insert({
+      status: "pending",
+      sale_id: saleId,
+      customer_name: name,
+      customer_email: email,
+      customer_phone: phone,
+      garments: enrichedGarments,
+      fulfillment,
+      address: fulfillment === "ship" ? address : null,
+      amount_cents: amountCents,
+    })
+    .select("id")
+    .single();
+
+  if (error) {
+    console.error("Supabase insert error:", error);
+    return { statusCode: 500, body: JSON.stringify({ error: "Could not save order." }) };
+  }
+
+  return {
+    statusCode: 200,
+    body: JSON.stringify({ orderId: data.id, amountCents }),
+  };
 };
