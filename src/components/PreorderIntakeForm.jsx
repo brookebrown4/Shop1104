@@ -21,7 +21,7 @@ const FALLBACK_SIZES = [
   "Adult S","Adult M","Adult L","Adult XL","Adult 2XL","Adult 3XL","Adult 4XL",
 ];
 
-const emptyGarment = () => ({ productId: "", color: "", size: "", logo: "" });
+const emptyGarment = () => ({ productId: "", color: "", size: "", logo: "", customText: "" });
 const emptyForm = {
   name: "", email: "", phone: "",
   garments: [emptyGarment()],
@@ -114,6 +114,7 @@ export default function PreorderIntakeForm({ slug, onChooseSlug }) {
       if (!g.size) errs[`garment-${i}-size`] = "Pick a size.";
       if ((product.colors || []).length > 0 && !g.color) errs[`garment-${i}-color`] = "Choose a color.";
       if ((product.logos || []).length > 0 && !g.logo) errs[`garment-${i}-logo`] = "Choose a logo/design.";
+      if (product.customTextEnabled && !g.customText.trim()) errs[`garment-${i}-customText`] = `${product.customTextLabel || "This field"} is required.`;
     });
     if (form.fulfillment === "ship") {
       if (!form.address.line1.trim()) errs.line1 = "Address is required.";
@@ -132,7 +133,7 @@ export default function PreorderIntakeForm({ slug, onChooseSlug }) {
     setSubmitError(""); setSubmitting(true);
     const payload = {
       name: form.name, email: form.email, phone: form.phone, saleId: sale.id,
-      garments: form.garments.map((g) => ({ productId: g.productId, color: g.color, size: g.size, logo: g.logo })),
+      garments: form.garments.map((g) => ({ productId: g.productId, color: g.color, size: g.size, logo: g.logo, customText: g.customText })),
       fulfillment: form.fulfillment, address: form.address,
     };
     try {
@@ -167,7 +168,7 @@ export default function PreorderIntakeForm({ slug, onChooseSlug }) {
   if (orderSubmitted) {
     return (
       <div className="section">
-        <p className="section-label">Pre-Order</p>
+        <p className="section-label">Collections</p>
         <h2 className="section-title" style={{ marginBottom: "1rem" }}>Order received!</h2>
         <p className="section-body">
           Thanks — your pre-order for {sale.name} has been received. Shop 1104 will follow up
@@ -184,9 +185,9 @@ export default function PreorderIntakeForm({ slug, onChooseSlug }) {
   if (multipleSales) {
     return (
       <div className="section">
-        <p className="section-label">Pre-Order</p>
-        <h2 className="section-title" style={{ marginBottom: "1rem" }}>Choose a pre-order</h2>
-        <p className="section-body" style={{ marginBottom: "1.5rem" }}>More than one pre-order is running right now — pick one below.</p>
+        <p className="section-label">Collections</p>
+        <h2 className="section-title" style={{ marginBottom: "1rem" }}>Choose a collection</h2>
+        <p className="section-body" style={{ marginBottom: "1.5rem" }}>More than one collection is running right now — pick one below.</p>
         <div style={{ display: "flex", flexDirection: "column", gap: ".75rem", maxWidth: 420 }}>
           {multipleSales.map((s) => (
             <button key={s.slug} type="button" className="btn-outline" onClick={() => onChooseSlug && onChooseSlug(s.slug)}>
@@ -201,8 +202,8 @@ export default function PreorderIntakeForm({ slug, onChooseSlug }) {
   if (loadError || !sale) {
     return (
       <div className="section">
-        <p className="section-label">Pre-Order</p>
-        <h2 className="section-title" style={{ marginBottom: "1rem" }}>No pre-order running right now</h2>
+        <p className="section-label">Collections</p>
+        <h2 className="section-title" style={{ marginBottom: "1rem" }}>No collection available right now</h2>
         <p className="section-body">{loadError || "Check back soon, or follow Shop 1104 for updates on the next sale."}</p>
       </div>
     );
@@ -211,7 +212,7 @@ export default function PreorderIntakeForm({ slug, onChooseSlug }) {
   if (products.length === 0) {
     return (
       <div className="section">
-        <p className="section-label">Pre-Order</p>
+        <p className="section-label">Collections</p>
         <h2 className="section-title" style={{ marginBottom: "1rem" }}>{sale.name}</h2>
         <p className="section-body">This sale is active but doesn't have any items set up yet.</p>
       </div>
@@ -220,7 +221,7 @@ export default function PreorderIntakeForm({ slug, onChooseSlug }) {
 
   return (
     <div className="section">
-      <p className="section-label">Pre-Order</p>
+      <p className="section-label">Collections</p>
       <h2 className="section-title" style={{ marginBottom: ".5rem" }}>{sale.name}</h2>
       <p className="section-body" style={{ marginBottom: "1rem" }}>
         Tell us who it's for, which item, and how many — we'll take it from there.
@@ -276,7 +277,7 @@ export default function PreorderIntakeForm({ slug, onChooseSlug }) {
 
                 <div className="form-group" style={{ marginBottom: ".75rem" }}>
                   <label>Item</label>
-                  <select value={g.productId} onChange={(e) => { updateGarment(i, "productId", e.target.value); updateGarment(i, "color", ""); updateGarment(i, "size", ""); updateGarment(i, "logo", ""); }}>
+                  <select value={g.productId} onChange={(e) => { updateGarment(i, "productId", e.target.value); updateGarment(i, "color", ""); updateGarment(i, "size", ""); updateGarment(i, "logo", ""); updateGarment(i, "customText", ""); }}>
                     <option value="">Choose item…</option>
                     {products.map((p) => (
                       <option key={p.id} value={p.id}>{p.name} — ${(p.price_cents / 100).toFixed(2)}</option>
@@ -299,6 +300,14 @@ export default function PreorderIntakeForm({ slug, onChooseSlug }) {
                       {logoOptions.map((l) => <option key={l.name} value={l.name}>{l.name}{optionCostLabel(l.extraCost)}</option>)}
                     </select>
                     {errorText(`garment-${i}-logo`)}
+                  </div>
+                )}
+
+                {product && product.customTextEnabled && (
+                  <div className="form-group" style={{ marginBottom: ".75rem" }}>
+                    <label>{product.customTextLabel || "Custom Name"}</label>
+                    <input type="text" value={g.customText} onChange={(e) => updateGarment(i, "customText", e.target.value)} placeholder={`Enter ${(product.customTextLabel || "custom name").toLowerCase()}`} />
+                    {errorText(`garment-${i}-customText`)}
                   </div>
                 )}
 
