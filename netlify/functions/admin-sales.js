@@ -3,11 +3,16 @@
 // Admin-only. Manages "sales" (pre-order events). Gated by an admin code
 // sent in the x-admin-code header, checked against ADMIN_ACCESS_CODE.
 //
-// GET                          -> list all sales, newest first
+// Multiple sales can be active at the same time -- each gets its own
+// shareable slug (e.g. /preorder/summer-2026-a1b2), set once at creation
+// and never changed by a rename, so links you've already shared keep working.
+//
+// GET                          -> list all sales, newest first (includes slug)
 // POST { action: "create", name }
-// POST { action: "activate", saleId }   -> deactivates all others first
-// POST { action: "rename", saleId, name }
-// POST { action: "delete", saleId }     -> also deletes its products (cascade)
+// POST { action: "activate", saleId }    -> turns this sale on (others unaffected)
+// POST { action: "deactivate", saleId }  -> turns this sale off
+// POST { action: "rename", saleId, name } -> changes display name only, not the slug
+// POST { action: "delete", saleId }      -> also deletes its products (cascade)
 
 const { createClient } = require("@supabase/supabase-js");
 
@@ -18,6 +23,15 @@ function isAuthorized(event) {
   return code && process.env.ADMIN_ACCESS_CODE && code === process.env.ADMIN_ACCESS_CODE;
 }
 
+function slugify(name) {
+  const base = (name || "sale")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  const suffix = Math.random().toString(36).slice(2, 6);
+  return `${base}-${suffix}`;
+}
+
 exports.handler = async (event) => {
   if (!isAuthorized(event)) {
     return { statusCode: 401, body: JSON.stringify({ error: "Not authorized." }) };
@@ -26,7 +40,7 @@ exports.handler = async (event) => {
   if (event.httpMethod === "GET") {
     const { data, error } = await supabase
       .from("sales")
-      .select("id, name, is_active, created_at, products(count)")
+      .select("id, name, slug, is_active, created_at, products(count)")
       .order("created_at", { ascending: false });
 
     if (error) return { statusCode: 500, body: JSON.stringify({ error: "Could not load sales." }) };
@@ -50,28 +64,31 @@ exports.handler = async (event) => {
     if (!body.name || !body.name.trim()) {
       return { statusCode: 400, body: JSON.stringify({ error: "Sale name is required." }) };
     }
+    let slug = slugify(body.name);
+    // Extremely unlikely collision, but guard anyway.
+    for (let i = 0; i < 5; i++) {
+      const { data: existing } = await supabase.from("sales").select("id").eq("slug", slug).maybeSingle();
+      if (!existing) break;
+      slug = slugify(body.name);
+    }
     const { data, error } = await supabase
       .from("sales")
-      .insert({ name: body.name.trim(), is_active: false })
+      .insert({ name: body.name.trim(), slug, is_active: false })
       .select()
       .single();
     if (error) return { statusCode: 500, body: JSON.stringify({ error: "Could not create sale." }) };
     return { statusCode: 200, body: JSON.stringify({ sale: data }) };
   }
 
-  if (action === "activate") {
+  if (action === "activate" || action === "deactivate") {
     if (!body.saleId) return { statusCode: 400, body: JSON.stringify({ error: "saleId is required." }) };
-    // Deactivate everything, then activate the chosen one.
-    const { error: deactivateErr } = await supabase.from("sales").update({ is_active: false }).eq("is_active", true);
-    if (deactivateErr) return { statusCode: 500, body: JSON.stringify({ error: "Could not deactivate current sale." }) };
-
     const { data, error } = await supabase
       .from("sales")
-      .update({ is_active: true })
+      .update({ is_active: action === "activate" })
       .eq("id", body.saleId)
       .select()
       .single();
-    if (error) return { statusCode: 500, body: JSON.stringify({ error: "Could not activate sale." }) };
+    if (error) return { statusCode: 500, body: JSON.stringify({ error: "Could not update sale." }) };
     return { statusCode: 200, body: JSON.stringify({ sale: data }) };
   }
 
