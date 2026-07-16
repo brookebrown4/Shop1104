@@ -1,4 +1,4 @@
-// netlify/functions/get-site-content.js
+// netlify/functions/get-site-content.cjs
 //
 // Public, read-only. Returns everything the public site needs to render:
 // settings, hero, about text, gallery, thread colors, font styles, font
