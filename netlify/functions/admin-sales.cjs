@@ -113,5 +113,45 @@ exports.handler = async (event) => {
     return { statusCode: 200, body: JSON.stringify({ ok: true }) };
   }
 
+  if (action === "duplicate") {
+    if (!body.saleId) return { statusCode: 400, body: JSON.stringify({ error: "saleId is required." }) };
+
+    const { data: sourceSale, error: sourceErr } = await supabase
+      .from("sales")
+      .select("id, name")
+      .eq("id", body.saleId)
+      .single();
+    if (sourceErr || !sourceSale) return { statusCode: 404, body: JSON.stringify({ error: "Sale not found." }) };
+
+    const newName = (body.name && body.name.trim()) || `${sourceSale.name} (Copy)`;
+    let slug = slugify(newName);
+    for (let i = 0; i < 5; i++) {
+      const { data: existing } = await supabase.from("sales").select("id").eq("slug", slug).maybeSingle();
+      if (!existing) break;
+      slug = slugify(newName);
+    }
+
+    const { data: newSale, error: newSaleErr } = await supabase
+      .from("sales")
+      .insert({ name: newName, slug, is_active: false })
+      .select()
+      .single();
+    if (newSaleErr) return { statusCode: 500, body: JSON.stringify({ error: "Could not create duplicate sale." }) };
+
+    const { data: sourceProducts, error: prodErr } = await supabase
+      .from("products")
+      .select("name, price_cents, sort_order, colors, sizes, logos, image_data, custom_text_enabled, custom_text_label")
+      .eq("sale_id", body.saleId);
+    if (prodErr) return { statusCode: 500, body: JSON.stringify({ error: "Could not read products to duplicate." }) };
+
+    if (sourceProducts && sourceProducts.length > 0) {
+      const newProducts = sourceProducts.map((p) => ({ ...p, sale_id: newSale.id }));
+      const { error: insertErr } = await supabase.from("products").insert(newProducts);
+      if (insertErr) return { statusCode: 500, body: JSON.stringify({ error: "Sale was created, but copying its items failed." }) };
+    }
+
+    return { statusCode: 200, body: JSON.stringify({ sale: newSale }) };
+  }
+
   return { statusCode: 400, body: JSON.stringify({ error: "Unknown action." }) };
 };
