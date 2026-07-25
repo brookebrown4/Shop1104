@@ -257,6 +257,15 @@ export default function SalesAdminPanel() {
     if (res.ok) { setEditingProductId(null); setEditProduct(null); await loadProducts(selectedSaleId, adminCode); }
   };
 
+  const moveProduct = async (productId, targetSaleId) => {
+    if (!targetSaleId) return;
+    const res = await fetch("/.netlify/functions/admin-products", {
+      method: "POST", headers: authHeaders(adminCode),
+      body: JSON.stringify({ action: "move", productId, targetSaleId }),
+    });
+    if (res.ok) await loadProducts(selectedSaleId, adminCode);
+  };
+
   const deleteProduct = async (productId) => {
     if (!window.confirm("Delete this item?")) return;
     const res = await fetch("/.netlify/functions/admin-products", {
@@ -419,6 +428,18 @@ export default function SalesAdminPanel() {
                             {(p.colors || []).length} color{(p.colors || []).length !== 1 ? "s" : ""} ·{" "}
                             {(p.logos || []).length} logo{(p.logos || []).length !== 1 ? "s" : ""} defined
                           </p>
+                          <div style={{ marginTop: ".5rem" }}>
+                            <select
+                              defaultValue=""
+                              onChange={(e) => { moveProduct(p.id, e.target.value); e.target.value = ""; }}
+                              style={{ ...inputStyle, width: "auto", fontSize: ".78rem", padding: ".35rem .6rem" }}
+                            >
+                              <option value="" disabled>Move to another sale…</option>
+                              {sales.filter((s) => s.id !== selectedSaleId).map((s) => (
+                                <option key={s.id} value={s.id}>{s.name}</option>
+                              ))}
+                            </select>
+                          </div>
                         </div>
                       </div>
                     )}
