@@ -111,6 +111,21 @@ exports.handler = async (event) => {
     return { statusCode: 200, body: JSON.stringify({ product: data }) };
   }
 
+  if (action === "move") {
+    const { productId, targetSaleId } = body;
+    if (!productId || !targetSaleId) {
+      return { statusCode: 400, body: JSON.stringify({ error: "productId and targetSaleId are required." }) };
+    }
+    const { data, error } = await supabase
+      .from("products")
+      .update({ sale_id: targetSaleId })
+      .eq("id", productId)
+      .select()
+      .single();
+    if (error) return { statusCode: 500, body: JSON.stringify({ error: "Could not move product." }) };
+    return { statusCode: 200, body: JSON.stringify({ product: data }) };
+  }
+
   if (action === "delete") {
     const { productId } = body;
     if (!productId) return { statusCode: 400, body: JSON.stringify({ error: "productId is required." }) };
