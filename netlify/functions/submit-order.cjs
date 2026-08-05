@@ -1,13 +1,13 @@
-// netlify/functions/submit-order.js
+// netlify/functions/submit-order.cjs
 //
 // Saves an incoming pre-order to Supabase with status "pending", before
-// the customer is sent to Stripe to pay. Prices are looked up server-side
-// from the active sale's products -- the browser only ever sends product
-// IDs, never prices, so nothing about the charge can be tampered with
-// client-side.
+// the customer is sent to Stripe to pay. Prices, sizes, colors, and logo
+// choices are all looked up and validated server-side from the active
+// sale's products -- the browser only ever sends product IDs and picked
+// option names, never prices, so nothing about the charge can be
+// tampered with client-side.
 
 const { createClient } = require("@supabase/supabase-js");
-
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
 exports.handler = async (event) => {
@@ -22,7 +22,7 @@ exports.handler = async (event) => {
     return { statusCode: 400, body: JSON.stringify({ error: "Invalid JSON body." }) };
   }
 
-  const { name, email, phone, saleId, garments, fulfillment, address } = order || {};
+  const { name, email, phone, saleId, garments, fulfillment, address, notes } = order || {};
 
   if (!name || !email || !phone || !saleId || !Array.isArray(garments) || garments.length === 0) {
     return { statusCode: 400, body: JSON.stringify({ error: "Missing required order fields." }) };
@@ -45,12 +45,12 @@ exports.handler = async (event) => {
     return { statusCode: 400, body: JSON.stringify({ error: "This sale is no longer active." }) };
   }
 
-  // Look up real prices for the selected products -- never trust prices
-  // sent from the client.
+  // Look up real prices and option lists for the selected products -- never
+  // trust prices, sizes, colors, or logos sent from the client.
   const productIds = [...new Set(garments.map((g) => g.productId))];
   const { data: products, error: prodErr } = await supabase
     .from("products")
-    .select("id, name, price_cents, colors")
+    .select("id, name, price_cents, colors, sizes, logos, sizes_enabled, custom_text_fields")
     .eq("sale_id", saleId)
     .in("id", productIds);
 
@@ -60,27 +60,57 @@ exports.handler = async (event) => {
   }
 
   const productMap = new Map(products.map((p) => [p.id, p]));
-
   let amountCents = 0;
   const enrichedGarments = [];
+
   for (const g of garments) {
     const product = productMap.get(g.productId);
     if (!product) {
       return { statusCode: 400, body: JSON.stringify({ error: "One or more items are no longer available." }) };
     }
-    if (!g.color || !g.color.trim() || !g.size) {
-      return { statusCode: 400, body: JSON.stringify({ error: "Each garment needs a color and size." }) };
+
+    const sizeList = product.sizes || [];
+    const colorList = product.colors || [];
+    const logoList = product.logos || [];
+    const sizeRequired = product.sizes_enabled !== false;
+
+    if (sizeRequired && !g.size) {
+      return { statusCode: 400, body: JSON.stringify({ error: `Choose a size for ${product.name}.` }) };
     }
-    if (Array.isArray(product.colors) && product.colors.length > 0 && !product.colors.includes(g.color)) {
+    if (!g.color || !g.color.trim()) {
+      return { statusCode: 400, body: JSON.stringify({ error: `Choose a color for ${product.name}.` }) };
+    }
+    if (sizeRequired && sizeList.length > 0 && !sizeList.some((s) => s.name === g.size)) {
+      return { statusCode: 400, body: JSON.stringify({ error: `"${g.size}" isn't an available size for ${product.name}.` }) };
+    }
+    // Colors are stored as [{ name, extraCost, hex }], so we check against
+    // the names -- comparing the raw array against a string always failed
+    // here before, which silently rejected valid orders.
+    if (colorList.length > 0 && !colorList.some((c) => c.name === g.color)) {
       return { statusCode: 400, body: JSON.stringify({ error: `"${g.color}" isn't an available color for ${product.name}.` }) };
     }
-    amountCents += product.price_cents;
+    if (g.logo && logoList.length > 0 && !logoList.some((l) => l.name === g.logo)) {
+      return { statusCode: 400, body: JSON.stringify({ error: `"${g.logo}" isn't an available design for ${product.name}.` }) };
+    }
+
+    // Add up base price + any extra cost from the size, color, and logo
+    // picked -- this used to only charge the base price, undercharging
+    // for every upcharged option.
+    const size = sizeList.find((s) => s.name === g.size);
+    const color = colorList.find((c) => c.name === g.color);
+    const logo = logoList.find((l) => l.name === g.logo);
+    const lineCents = product.price_cents + (size?.extraCost || 0) + (color?.extraCost || 0) + (logo?.extraCost || 0);
+    amountCents += lineCents;
+
     enrichedGarments.push({
       product_id: product.id,
       product_name: product.name,
-      price_cents: product.price_cents,
+      price_cents: lineCents,
       color: g.color.trim(),
-      size: g.size,
+      size: g.size || null,
+      // Logo/design choice used to be dropped entirely here -- now saved.
+      logo: g.logo || null,
+      custom_text_answers: g.customTextAnswers || {},
     });
   }
 
@@ -96,6 +126,7 @@ exports.handler = async (event) => {
       fulfillment,
       address: fulfillment === "ship" ? address : null,
       amount_cents: amountCents,
+      notes: notes || null,
     })
     .select("id")
     .single();

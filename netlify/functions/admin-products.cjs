@@ -4,19 +4,19 @@
 // same x-admin-code header as admin-sales.js.
 //
 // Each product can define its own:
-//   - sizes: [{ name, extraCost }]  -- if empty, a generic size list is used
-//   - colors: [{ name, extraCost }] -- if empty, no color choice is shown
-//   - logos:  [{ name, extraCost }] -- if empty, no logo/design choice is shown
+//   - sizes:  [{ name, extraCost }]      -- hidden entirely from customers if sizesEnabled is false
+//   - colors: [{ name, extraCost, hex }] -- if empty, customer can type any color
+//   - logos:  [{ name, extraCost }]      -- if empty, no logo/design choice is shown
+//   - customTextFields: [{ label }]      -- as many labeled text boxes as this item needs
 //   - image: a base64 photo (optional)
 // extraCost is added on top of the base price when a customer picks that option.
 //
-// GET ?saleId=...              -> list products for a sale
-// POST { action: "create", saleId, name, priceCents, sizes?, colors?, logos?, image? }
-// POST { action: "update", productId, name, priceCents, sizes?, colors?, logos?, image? }
+// GET  ?saleId=...  -> list products for a sale
+// POST { action: "create", saleId, name, priceCents, sizes?, sizesEnabled?, colors?, logos?, image?, customTextFields? }
+// POST { action: "update", productId, name, priceCents, sizes?, sizesEnabled?, colors?, logos?, image?, customTextFields? }
 // POST { action: "delete", productId }
 
 const { createClient } = require("@supabase/supabase-js");
-
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
 function isAuthorized(event) {
@@ -28,7 +28,18 @@ function cleanOptionList(list) {
   if (!Array.isArray(list)) return [];
   return list
     .filter((o) => o && o.name && o.name.trim())
-    .map((o) => ({ name: o.name.trim(), extraCost: Number.isFinite(Number(o.extraCost)) ? Math.round(Number(o.extraCost) * 100) : 0 }));
+    .map((o) => ({
+      name: o.name.trim(),
+      extraCost: Number.isFinite(Number(o.extraCost)) ? Math.round(Number(o.extraCost) * 100) : 0,
+      ...(o.hex ? { hex: o.hex } : {}),
+    }));
+}
+
+function cleanTextFields(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter((f) => f && f.label && f.label.trim())
+    .map((f) => ({ label: f.label.trim() }));
 }
 
 exports.handler = async (event) => {
@@ -42,7 +53,7 @@ exports.handler = async (event) => {
 
     const { data, error } = await supabase
       .from("products")
-      .select("id, name, price_cents, sort_order, colors, sizes, logos, image_data, custom_text_enabled, custom_text_label")
+      .select("id, name, price_cents, sort_order, colors, sizes, logos, image_data, sizes_enabled, custom_text_fields")
       .eq("sale_id", saleId)
       .order("sort_order", { ascending: true });
 
@@ -68,6 +79,7 @@ exports.handler = async (event) => {
     if (!saleId || !name || !name.trim() || !Number.isFinite(priceCents)) {
       return { statusCode: 400, body: JSON.stringify({ error: "saleId, name, and priceCents are required." }) };
     }
+
     const { data, error } = await supabase
       .from("products")
       .insert({
@@ -76,13 +88,14 @@ exports.handler = async (event) => {
         price_cents: Math.round(priceCents),
         colors: cleanOptionList(body.colors),
         sizes: cleanOptionList(body.sizes),
+        sizes_enabled: body.sizesEnabled !== false,
         logos: cleanOptionList(body.logos),
         image_data: body.image || null,
-        custom_text_enabled: !!body.customTextEnabled,
-        custom_text_label: (body.customTextLabel && body.customTextLabel.trim()) || "Custom Name",
+        custom_text_fields: cleanTextFields(body.customTextFields),
       })
       .select()
       .single();
+
     if (error) return { statusCode: 500, body: JSON.stringify({ error: "Could not create product." }) };
     return { statusCode: 200, body: JSON.stringify({ product: data }) };
   }
@@ -96,10 +109,10 @@ exports.handler = async (event) => {
     if (Number.isFinite(priceCents)) updates.price_cents = Math.round(priceCents);
     if (body.colors !== undefined) updates.colors = cleanOptionList(body.colors);
     if (body.sizes !== undefined) updates.sizes = cleanOptionList(body.sizes);
+    if (body.sizesEnabled !== undefined) updates.sizes_enabled = !!body.sizesEnabled;
     if (body.logos !== undefined) updates.logos = cleanOptionList(body.logos);
     if (body.image !== undefined) updates.image_data = body.image || null;
-    if (body.customTextEnabled !== undefined) updates.custom_text_enabled = !!body.customTextEnabled;
-    if (body.customTextLabel !== undefined) updates.custom_text_label = (body.customTextLabel && body.customTextLabel.trim()) || "Custom Name";
+    if (body.customTextFields !== undefined) updates.custom_text_fields = cleanTextFields(body.customTextFields);
 
     const { data, error } = await supabase
       .from("products")
@@ -107,6 +120,7 @@ exports.handler = async (event) => {
       .eq("id", productId)
       .select()
       .single();
+
     if (error) return { statusCode: 500, body: JSON.stringify({ error: "Could not update product." }) };
     return { statusCode: 200, body: JSON.stringify({ product: data }) };
   }
@@ -122,6 +136,7 @@ exports.handler = async (event) => {
       .eq("id", productId)
       .select()
       .single();
+
     if (error) return { statusCode: 500, body: JSON.stringify({ error: "Could not move product." }) };
     return { statusCode: 200, body: JSON.stringify({ product: data }) };
   }
