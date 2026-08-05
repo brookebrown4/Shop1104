@@ -90,8 +90,11 @@ exports.handler = async (event) => {
       return { statusCode: 400, body: JSON.stringify({ error: "value is required." }) };
     }
     const { error } = await supabase
-      .from("site_content")
-      .upsert({ key: resource, value: body.value, updated_at: new Date().toISOString() });
+  .from("site_content")
+  .upsert(
+    { key: resource, value: body.value, updated_at: new Date().toISOString() },
+    { onConflict: "key" }
+  );
     if (error) {
       console.error("Supabase error (site_content upsert):", error);
       return { statusCode: 500, body: JSON.stringify({ error: "Could not save." }) };
