@@ -4,29 +4,33 @@ import { useState, useEffect } from "react";
  * Shop 1104 — Pre-Order Intake Form
  *
  * Props:
- *   slug         - optional, from the URL (/preorder/some-slug). If given,
- *                  loads that specific sale. If omitted, loads whichever
- *                  single sale is active, or shows a picker if more than
- *                  one sale is active at once.
- *   onChooseSlug - called with a slug when the customer picks a sale from
- *                  that picker, so the parent can update the URL.
+ *   slug          - optional, from the URL (/preorder/some-slug). If given,
+ *                   loads that specific sale. If omitted, loads whichever
+ *                   single sale is active, or shows a picker if more than
+ *                   one sale is active at once.
+ *   onChooseSlug  - called with a slug when the customer picks a sale from
+ *                   that picker, so the parent can update the URL.
  *
- * Each product can define its own sizes, colors, and logos/designs, each
- * optionally with an extra cost added to the base price. If a product
- * doesn't define a given option list, that choice is simply skipped.
+ * Each product can define its own sizes (or hide sizing entirely), colors,
+ * logos/designs, and custom text fields, each optionally with an extra
+ * cost added to the base price. If a product doesn't define a given
+ * option list, that choice is simply skipped. There's always an open
+ * notes box at the bottom of the order for anything that doesn't fit
+ * elsewhere.
  */
 
 const FALLBACK_SIZES = [
-  "Youth S","Youth M","Youth L",
-  "Adult S","Adult M","Adult L","Adult XL","Adult 2XL","Adult 3XL","Adult 4XL",
+  "Youth S", "Youth M", "Youth L",
+  "Adult S", "Adult M", "Adult L", "Adult XL", "Adult 2XL", "Adult 3XL", "Adult 4XL",
 ];
 
-const emptyGarment = () => ({ productId: "", color: "", size: "", logo: "" });
+const emptyGarment = () => ({ productId: "", color: "", size: "", logo: "", customTextAnswers: {} });
 const emptyForm = {
   name: "", email: "", phone: "",
   garments: [emptyGarment()],
   fulfillment: "ship",
   address: { line1: "", line2: "", city: "", state: "", zip: "" },
+  notes: "",
 };
 
 function optionCostLabel(extraCost) {
@@ -55,9 +59,11 @@ export default function PreorderIntakeForm({ slug, onChooseSlug }) {
     setLoadingSale(true);
     setMultipleSales(null);
     setLoadError("");
+
     const url = slug
       ? `/.netlify/functions/get-active-sale?slug=${encodeURIComponent(slug)}`
       : "/.netlify/functions/get-active-sale";
+
     fetch(url)
       .then((res) => { if (!res.ok) throw new Error("Could not load current sale."); return res.json(); })
       .then((data) => {
@@ -74,6 +80,7 @@ export default function PreorderIntakeForm({ slug, onChooseSlug }) {
       })
       .catch((err) => { if (cancelled) return; setLoadError(err.message || "Could not load current sale."); })
       .finally(() => { if (!cancelled) setLoadingSale(false); });
+
     return () => { cancelled = true; };
   }, [slug]);
 
@@ -108,19 +115,22 @@ export default function PreorderIntakeForm({ slug, onChooseSlug }) {
     if (!form.email.trim()) errs.email = "Email is required.";
     else if (!/^\S+@\S+\.\S+$/.test(form.email)) errs.email = "Enter a valid email.";
     if (!form.phone.trim()) errs.phone = "Phone number is required.";
+
     form.garments.forEach((g, i) => {
       const product = productById(g.productId);
       if (!product) { errs[`garment-${i}-productId`] = "Choose an item."; return; }
-      if (!g.size) errs[`garment-${i}-size`] = "Pick a size.";
+      if (product.sizesEnabled !== false && !g.size) errs[`garment-${i}-size`] = "Pick a size.";
       if ((product.colors || []).length > 0 && !g.color) errs[`garment-${i}-color`] = "Choose a color.";
       if ((product.logos || []).length > 0 && !g.logo) errs[`garment-${i}-logo`] = "Choose a logo/design.";
     });
+
     if (form.fulfillment === "ship") {
       if (!form.address.line1.trim()) errs.line1 = "Address is required.";
       if (!form.address.city.trim()) errs.city = "City is required.";
       if (!form.address.state.trim()) errs.state = "State is required.";
       if (!form.address.zip.trim()) errs.zip = "ZIP is required.";
     }
+
     setErrors(errs);
     return Object.keys(errs).length === 0;
   };
@@ -129,12 +139,19 @@ export default function PreorderIntakeForm({ slug, onChooseSlug }) {
     e.preventDefault();
     if (!sale) return;
     if (!validate()) return;
+
     setSubmitError(""); setSubmitting(true);
+
     const payload = {
       name: form.name, email: form.email, phone: form.phone, saleId: sale.id,
-      garments: form.garments.map((g) => ({ productId: g.productId, color: g.color, size: g.size, logo: g.logo })),
+      garments: form.garments.map((g) => ({
+        productId: g.productId, color: g.color, size: g.size, logo: g.logo,
+        customTextAnswers: g.customTextAnswers || {},
+      })),
       fulfillment: form.fulfillment, address: form.address,
+      notes: form.notes,
     };
+
     try {
       const orderRes = await fetch("/.netlify/functions/submit-order", {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
@@ -260,9 +277,26 @@ export default function PreorderIntakeForm({ slug, onChooseSlug }) {
 
           {form.garments.map((g, i) => {
             const product = productById(g.productId);
+            const sizesEnabled = product ? product.sizesEnabled !== false : true;
             const sizeOptions = product && product.sizes && product.sizes.length > 0 ? product.sizes : null;
             const colorOptions = product ? product.colors || [] : [];
             const logoOptions = product ? product.logos || [] : [];
+            const textFields = product ? product.customTextFields || [] : [];
+
+            const colorField = (
+              <div className="form-group"><label>Color</label>
+                {colorOptions.length > 0 ? (
+                  <select value={g.color} onChange={(e) => updateGarment(i, "color", e.target.value)}>
+                    <option value="">Choose color…</option>
+                    {colorOptions.map((c) => <option key={c.name} value={c.name}>{c.name}{optionCostLabel(c.extraCost)}</option>)}
+                  </select>
+                ) : (
+                  <input type="text" value={g.color} onChange={(e) => updateGarment(i, "color", e.target.value)} placeholder="e.g. Heather Gray" disabled={!g.productId} />
+                )}
+                {errorText(`garment-${i}-color`)}
+              </div>
+            );
+
             return (
               <div key={i} className="acard" style={{ border: "1.5px dashed var(--border)" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: ".75rem" }}>
@@ -276,7 +310,7 @@ export default function PreorderIntakeForm({ slug, onChooseSlug }) {
 
                 <div className="form-group" style={{ marginBottom: ".75rem" }}>
                   <label>Item</label>
-                  <select value={g.productId} onChange={(e) => { updateGarment(i, "productId", e.target.value); updateGarment(i, "color", ""); updateGarment(i, "size", ""); updateGarment(i, "logo", ""); }}>
+                  <select value={g.productId} onChange={(e) => { updateGarment(i, "productId", e.target.value); updateGarment(i, "color", ""); updateGarment(i, "size", ""); updateGarment(i, "logo", ""); updateGarment(i, "customTextAnswers", {}); }}>
                     <option value="">Choose item…</option>
                     {products.map((p) => (
                       <option key={p.id} value={p.id}>{p.name} — ${(p.price_cents / 100).toFixed(2)}</option>
@@ -302,28 +336,37 @@ export default function PreorderIntakeForm({ slug, onChooseSlug }) {
                   </div>
                 )}
 
-                <div className="form-row">
-                  <div className="form-group"><label>Color</label>
-                    {colorOptions.length > 0 ? (
-                      <select value={g.color} onChange={(e) => updateGarment(i, "color", e.target.value)}>
-                        <option value="">Choose color…</option>
-                        {colorOptions.map((c) => <option key={c.name} value={c.name}>{c.name}{optionCostLabel(c.extraCost)}</option>)}
+                {product && textFields.length > 0 && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: ".75rem", marginBottom: ".75rem" }}>
+                    {textFields.map((f) => (
+                      <div className="form-group" key={f.label}>
+                        <label>{f.label}</label>
+                        <input
+                          type="text"
+                          value={(g.customTextAnswers && g.customTextAnswers[f.label]) || ""}
+                          onChange={(e) => updateGarment(i, "customTextAnswers", { ...(g.customTextAnswers || {}), [f.label]: e.target.value })}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {sizesEnabled ? (
+                  <div className="form-row">
+                    {colorField}
+                    <div className="form-group"><label>Size</label>
+                      <select value={g.size} onChange={(e) => updateGarment(i, "size", e.target.value)}>
+                        <option value="">Choose size…</option>
+                        {(sizeOptions || FALLBACK_SIZES.map((n) => ({ name: n, extraCost: 0 }))).map((s) => (
+                          <option key={s.name} value={s.name}>{s.name}{optionCostLabel(s.extraCost)}</option>
+                        ))}
                       </select>
-                    ) : (
-                      <input type="text" value={g.color} onChange={(e) => updateGarment(i, "color", e.target.value)} placeholder="e.g. Heather Gray" disabled={!g.productId} />
-                    )}
-                    {errorText(`garment-${i}-color`)}
+                      {errorText(`garment-${i}-size`)}
+                    </div>
                   </div>
-                  <div className="form-group"><label>Size</label>
-                    <select value={g.size} onChange={(e) => updateGarment(i, "size", e.target.value)}>
-                      <option value="">Choose size…</option>
-                      {(sizeOptions || FALLBACK_SIZES.map((n) => ({ name: n, extraCost: 0 }))).map((s) => (
-                        <option key={s.name} value={s.name}>{s.name}{optionCostLabel(s.extraCost)}</option>
-                      ))}
-                    </select>
-                    {errorText(`garment-${i}-size`)}
-                  </div>
-                </div>
+                ) : (
+                  colorField
+                )}
 
                 {product && (
                   <p style={{ fontSize: ".78rem", color: "var(--ink-muted)", marginTop: ".6rem", textAlign: "right" }}>
@@ -342,7 +385,6 @@ export default function PreorderIntakeForm({ slug, onChooseSlug }) {
             <button type="button" className={form.fulfillment === "ship" ? "btn-primary" : "btn-outline"} onClick={() => updateField("fulfillment", "ship")}>Ship it to me</button>
             <button type="button" className={form.fulfillment === "pickup" ? "btn-primary" : "btn-outline"} onClick={() => updateField("fulfillment", "pickup")}>Local pickup</button>
           </div>
-
           {form.fulfillment === "ship" && (
             <div style={{ marginTop: "1rem", display: "flex", flexDirection: "column", gap: "1rem" }}>
               <div className="form-group"><label>Address line 1</label>
@@ -373,6 +415,15 @@ export default function PreorderIntakeForm({ slug, onChooseSlug }) {
               Pickup available at Shop 1104, Indianola, IA — we'll text you when it's ready.
             </p>
           )}
+        </div>
+
+        {/* Always-present open notes box */}
+        <div className="aform">
+          <h3>Additional Notes</h3>
+          <div className="form-group">
+            <label>Anything else we should know? (optional)</label>
+            <textarea rows={3} value={form.notes} onChange={(e) => updateField("notes", e.target.value)} placeholder="Special requests, questions, extra design details, etc." />
+          </div>
         </div>
 
         <div style={{ background: "var(--card-bg)", border: "1px solid var(--border)", borderRadius: 10, padding: "1rem", marginBottom: "1rem", fontSize: ".85rem", color: "var(--ink-soft)" }}>
