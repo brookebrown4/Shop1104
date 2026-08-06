@@ -234,6 +234,11 @@ export default function SalesAdminPanel() {
   const [editLogoDraft, setEditLogoDraft] = useState(emptyOption());
   const [editCustomTextDraft, setEditCustomTextDraft] = useState("");
 
+  // Surfaces any save failure to you instead of failing silently (e.g. if
+  // your admin session has expired, you'll now see this instead of the
+  // change just quietly not saving).
+  const [saveError, setSaveError] = useState("");
+
   const selectedSale = sales.find((s) => s.id === selectedSaleId) || null;
 
   useEffect(() => {
@@ -341,17 +346,27 @@ export default function SalesAdminPanel() {
     const priceCents = Math.round(parseFloat(newProduct.price) * 100);
     if (!Number.isFinite(priceCents) || priceCents <= 0) return;
 
-    const res = await fetch("/.netlify/functions/admin-products", {
-      method: "POST", headers: authHeaders(adminCode),
-      body: JSON.stringify({
-        action: "create", saleId: selectedSaleId, name: newProduct.name.trim(), priceCents,
-        sizes: newProduct.sizesEnabled ? newProduct.sizes : [],
-        sizesEnabled: newProduct.sizesEnabled,
-        colors: newProduct.colors, logos: newProduct.logos, image: newProduct.image,
-        customTextFields: newProduct.customTextFields,
-      }),
-    });
-    if (res.ok) { setNewProduct(freshNewProduct()); await loadProducts(selectedSaleId, adminCode); }
+    setSaveError("");
+    try {
+      const res = await fetch("/.netlify/functions/admin-products", {
+        method: "POST", headers: authHeaders(adminCode),
+        body: JSON.stringify({
+          action: "create", saleId: selectedSaleId, name: newProduct.name.trim(), priceCents,
+          sizes: newProduct.sizesEnabled ? newProduct.sizes : [],
+          sizesEnabled: newProduct.sizesEnabled,
+          colors: newProduct.colors, logos: newProduct.logos, image: newProduct.image,
+          customTextFields: newProduct.customTextFields,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(res.status === 401 ? "Your admin session expired — log out and back in, then try again." : (err.error || "Could not save this item."));
+      }
+      setNewProduct(freshNewProduct());
+      await loadProducts(selectedSaleId, adminCode);
+    } catch (err) {
+      setSaveError(err.message);
+    }
   };
 
   const startEdit = (p) => {
@@ -368,17 +383,27 @@ export default function SalesAdminPanel() {
 
   const saveEdit = async (productId) => {
     const priceCents = Math.round(parseFloat(editProduct.price) * 100);
-    const res = await fetch("/.netlify/functions/admin-products", {
-      method: "POST", headers: authHeaders(adminCode),
-      body: JSON.stringify({
-        action: "update", productId, name: editProduct.name.trim(), priceCents,
-        sizes: editProduct.sizesEnabled ? editProduct.sizes : [],
-        sizesEnabled: editProduct.sizesEnabled,
-        colors: editProduct.colors, logos: editProduct.logos, image: editProduct.image,
-        customTextFields: editProduct.customTextFields,
-      }),
-    });
-    if (res.ok) { setEditingProductId(null); setEditProduct(null); await loadProducts(selectedSaleId, adminCode); }
+    setSaveError("");
+    try {
+      const res = await fetch("/.netlify/functions/admin-products", {
+        method: "POST", headers: authHeaders(adminCode),
+        body: JSON.stringify({
+          action: "update", productId, name: editProduct.name.trim(), priceCents,
+          sizes: editProduct.sizesEnabled ? editProduct.sizes : [],
+          sizesEnabled: editProduct.sizesEnabled,
+          colors: editProduct.colors, logos: editProduct.logos, image: editProduct.image,
+          customTextFields: editProduct.customTextFields,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(res.status === 401 ? "Your admin session expired — log out and back in, then try again." : (err.error || "Could not save this item."));
+      }
+      setEditingProductId(null); setEditProduct(null);
+      await loadProducts(selectedSaleId, adminCode);
+    } catch (err) {
+      setSaveError(err.message);
+    }
   };
 
   const moveProduct = async (productId, targetSaleId) => {
@@ -467,6 +492,12 @@ export default function SalesAdminPanel() {
           {selectedSale ? (
             <>
               <h2 style={{ fontFamily: fontDisplay, fontSize: "1.1rem", color: COLORS.ink, marginBottom: "1rem" }}>Items in "{selectedSale.name}"</h2>
+
+              {saveError && (
+                <div style={{ background: "#fdecea", border: "1px solid #e8a0a0", borderRadius: 10, padding: ".75rem 1rem", marginBottom: "1rem", fontSize: ".85rem", color: COLORS.red }}>
+                  {saveError}
+                </div>
+              )}
 
               {/* Add product form */}
               <div style={{ background: COLORS.card, border: `1.5px solid ${COLORS.green}`, borderRadius: 14, padding: "1.25rem", marginBottom: "1.5rem" }}>
