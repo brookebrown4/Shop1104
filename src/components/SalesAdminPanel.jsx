@@ -11,8 +11,12 @@ import { useState, useEffect } from "react";
  *  - Multiple sales active at the same time, each with its own shareable
  *    link (/preorder/<slug>)
  *  - Renaming a sale (the link/slug stays the same so shared links don't break)
- *  - Per-product sizes, colors, and logos/designs, each optionally with its
- *    own extra cost added on top of the base price
+ *  - Per-product sizes (prefilled with standard sizes, or hidden entirely),
+ *    colors (checked off from the Thread Color catalog), and logos/designs
+ *    (custom name + cost) -- each optionally with its own extra cost added
+ *    on top of the base price
+ *  - As many labeled custom text fields per product as needed (name for
+ *    jersey, monogram initials, etc.)
  *  - A photo per product
  */
 
@@ -47,7 +51,160 @@ function resizeImage(file, cb) {
 }
 
 const emptyOption = () => ({ name: "", extraCost: "" });
-const emptyNewProduct = { name: "", price: "", image: "", sizes: [], colors: [], logos: [] };
+
+// Your standard size run -- prefilled on every new item so you're deleting
+// what you don't need instead of typing the whole list every time.
+const DEFAULT_SIZE_NAMES = [
+  "Youth XS", "Youth S", "Youth M", "Youth L", "Youth XL",
+  "Adult XS", "Adult S", "Adult M", "Adult L", "Adult XL", "Adult 2XL", "Adult 3XL", "Adult 4XL",
+];
+const freshDefaultSizes = () => DEFAULT_SIZE_NAMES.map((name) => ({ name, extraCost: "" }));
+
+const freshNewProduct = () => ({
+  name: "", price: "", image: "",
+  sizesEnabled: true,
+  sizes: freshDefaultSizes(),
+  colors: [],
+  logos: [],
+  customTextFields: [],
+});
+
+// Shared styles -- module scope so they're never recreated on re-render.
+const inputStyle = { padding: ".6rem .8rem", border: `1.5px solid ${COLORS.line}`, borderRadius: 8, background: "#FFFFFF", color: COLORS.ink, fontFamily: fontBody, fontSize: ".88rem", outline: "none", width: "100%" };
+const buttonPrimary = { padding: ".6rem 1.1rem", background: COLORS.green, color: "#FFFFFF", border: "none", borderRadius: 100, fontFamily: fontBody, fontSize: ".78rem", fontWeight: 600, letterSpacing: ".05em", textTransform: "uppercase", cursor: "pointer" };
+const buttonGhost = { padding: ".35rem .8rem", background: "transparent", color: COLORS.inkSoft, border: `1.5px solid ${COLORS.line}`, borderRadius: 100, fontFamily: fontBody, fontSize: ".7rem", cursor: "pointer" };
+const buttonDanger = { ...buttonGhost, color: COLORS.red, borderColor: "#e8a0a0" };
+const smallLabel = { fontSize: ".68rem", letterSpacing: ".08em", textTransform: "uppercase", color: COLORS.inkSoft, fontWeight: 600, marginBottom: ".3rem", display: "block" };
+
+// Pure helpers -- don't depend on component state, so they live at module scope too.
+function addOptionToDraft(listSetter, list, draft, draftSetter) {
+  if (!draft.name.trim()) return;
+  listSetter([...list, { name: draft.name.trim(), extraCost: draft.extraCost }]);
+  draftSetter(emptyOption());
+}
+function removeOptionAt(listSetter, list, idx) {
+  listSetter(list.filter((_, i) => i !== idx));
+}
+
+// Renders the add/edit UI for one option list (sizes or logos).
+// IMPORTANT: this must be defined here, at module scope -- NOT inside the
+// SalesAdminPanel component -- or React treats it as a brand-new component
+// on every re-render (e.g. every keystroke) and throws away the input's
+// focus, which is exactly the "only lets me type one character" bug.
+function OptionListEditor({ title, hint, list, setList, draft, setDraft }) {
+  return (
+    <div style={{ marginTop: ".85rem", padding: "1rem", background: COLORS.canvas, borderRadius: 10, border: `1px solid ${COLORS.line}` }}>
+      <span style={smallLabel}>{title}</span>
+      {hint && <p style={{ fontSize: ".72rem", color: COLORS.inkSoft, marginBottom: ".6rem" }}>{hint}</p>}
+      {list.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: ".4rem", marginBottom: ".6rem" }}>
+          {list.map((opt, i) => (
+            <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: ".45rem .7rem", background: COLORS.card, borderRadius: 6, border: `1px solid ${COLORS.line}` }}>
+              <span style={{ fontSize: ".82rem", color: COLORS.ink }}>{opt.name}</span>
+              <div style={{ display: "flex", alignItems: "center", gap: ".6rem" }}>
+                <span style={{ fontSize: ".76rem", color: COLORS.gold }}>{opt.extraCost ? `+$${Number(opt.extraCost).toFixed(2)}` : "no extra cost"}</span>
+                <button type="button" onClick={() => removeOptionAt(setList, list, i)} style={{ background: "none", border: "none", color: COLORS.inkSoft, cursor: "pointer" }}>✕</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      <div style={{ display: "flex", gap: ".5rem" }}>
+        <input type="text" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="Name (e.g. Adult L)" style={{ ...inputStyle, flex: 1 }} />
+        <input type="number" step="0.01" value={draft.extraCost} onChange={(e) => setDraft({ ...draft, extraCost: e.target.value })} placeholder="+$0.00" style={{ ...inputStyle, width: 90 }} />
+        <button type="button" onClick={() => addOptionToDraft(setList, list, draft, setDraft)} style={buttonGhost}>+ Add</button>
+      </div>
+    </div>
+  );
+}
+
+// Colors work differently from sizes/logos: instead of typing a name each
+// time, you check off which of your catalog thread colors this item is
+// offered in. The hex code rides along so the customer form can show a
+// swatch, and you can still add an extra cost per color if needed.
+function ColorCatalogPicker({ catalogColors, selected, setSelected }) {
+  const isChecked = (name) => selected.some((c) => c.name === name);
+  const toggle = (thread) => {
+    if (isChecked(thread.name)) {
+      setSelected(selected.filter((c) => c.name !== thread.name));
+    } else {
+      setSelected([...selected, { name: thread.name, hex: thread.hex, extraCost: "" }]);
+    }
+  };
+  const setExtraCost = (name, value) => {
+    setSelected(selected.map((c) => (c.name === name ? { ...c, extraCost: value } : c)));
+  };
+
+  return (
+    <div style={{ marginTop: ".85rem", padding: "1rem", background: COLORS.canvas, borderRadius: 10, border: `1px solid ${COLORS.line}` }}>
+      <span style={smallLabel}>Colors</span>
+      <p style={{ fontSize: ".72rem", color: COLORS.inkSoft, marginBottom: ".6rem" }}>
+        Check the thread colors this item is offered in. Leave all unchecked to let the customer type in any color instead.
+      </p>
+      {catalogColors.length === 0 && (
+        <p style={{ fontSize: ".78rem", color: COLORS.inkSoft }}>
+          No thread colors found in your catalog yet — add some from the main site's admin panel first.
+        </p>
+      )}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: ".5rem" }}>
+        {catalogColors.map((t) => (
+          <label key={t.id} style={{ display: "flex", alignItems: "center", gap: ".5rem", padding: ".4rem .6rem", background: COLORS.card, borderRadius: 8, border: `1px solid ${COLORS.line}`, cursor: "pointer" }}>
+            <input type="checkbox" checked={isChecked(t.name)} onChange={() => toggle(t)} />
+            <span style={{ width: 18, height: 18, borderRadius: "50%", background: t.hex, border: "1px solid rgba(0,0,0,.15)", flexShrink: 0 }} />
+            <span style={{ fontSize: ".82rem", color: COLORS.ink, flex: 1 }}>{t.name}</span>
+          </label>
+        ))}
+      </div>
+      {selected.length > 0 && (
+        <div style={{ marginTop: ".75rem", display: "flex", flexDirection: "column", gap: ".4rem" }}>
+          {selected.map((c) => (
+            <div key={c.name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: ".4rem .7rem", background: COLORS.card, borderRadius: 6, border: `1px solid ${COLORS.line}` }}>
+              <span style={{ fontSize: ".8rem", color: COLORS.ink, display: "flex", alignItems: "center", gap: ".5rem" }}>
+                <span style={{ width: 14, height: 14, borderRadius: "50%", background: c.hex, display: "inline-block", flexShrink: 0 }} />
+                {c.name}
+              </span>
+              <input type="number" step="0.01" value={c.extraCost} onChange={(e) => setExtraCost(c.name, e.target.value)} placeholder="+$0.00" style={{ ...inputStyle, width: 90 }} />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// As many labeled text boxes as an item needs -- name for jersey, monogram
+// initials, whatever. Leave empty for items that don't need any.
+function CustomTextFieldsEditor({ fields, setFields, draftLabel, setDraftLabel }) {
+  const addField = () => {
+    if (!draftLabel.trim()) return;
+    setFields([...fields, { label: draftLabel.trim() }]);
+    setDraftLabel("");
+  };
+  const removeField = (idx) => setFields(fields.filter((_, i) => i !== idx));
+
+  return (
+    <div style={{ marginTop: ".85rem", padding: "1rem", background: COLORS.canvas, borderRadius: 10, border: `1px solid ${COLORS.line}` }}>
+      <span style={smallLabel}>Custom text fields</span>
+      <p style={{ fontSize: ".72rem", color: COLORS.inkSoft, marginBottom: ".6rem" }}>
+        Add as many as you need — name for jersey, monogram initials, etc. Leave empty if this item doesn't need any.
+      </p>
+      {fields.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: ".4rem", marginBottom: ".6rem" }}>
+          {fields.map((f, i) => (
+            <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: ".45rem .7rem", background: COLORS.card, borderRadius: 6, border: `1px solid ${COLORS.line}` }}>
+              <span style={{ fontSize: ".82rem", color: COLORS.ink }}>{f.label}</span>
+              <button type="button" onClick={() => removeField(i)} style={{ background: "none", border: "none", color: COLORS.inkSoft, cursor: "pointer" }}>✕</button>
+            </div>
+          ))}
+        </div>
+      )}
+      <div style={{ display: "flex", gap: ".5rem" }}>
+        <input type="text" value={draftLabel} onChange={(e) => setDraftLabel(e.target.value)} placeholder="Field label (e.g. Name for Jersey)" style={{ ...inputStyle, flex: 1 }} />
+        <button type="button" onClick={addField} style={buttonGhost}>+ Add field</button>
+      </div>
+    </div>
+  );
+}
 
 export default function SalesAdminPanel() {
   const [adminCode, setAdminCode] = useState("");
@@ -62,18 +219,29 @@ export default function SalesAdminPanel() {
   const [renameValue, setRenameValue] = useState("");
   const [copiedSlug, setCopiedSlug] = useState("");
 
-  const [newProduct, setNewProduct] = useState(emptyNewProduct);
+  // Your thread color catalog, pulled from the main site's public content
+  // so this panel never needs its own separate copy of the colors.
+  const [catalogColors, setCatalogColors] = useState([]);
+
+  const [newProduct, setNewProduct] = useState(freshNewProduct());
   const [newSizeDraft, setNewSizeDraft] = useState(emptyOption());
-  const [newColorDraft, setNewColorDraft] = useState(emptyOption());
   const [newLogoDraft, setNewLogoDraft] = useState(emptyOption());
+  const [newCustomTextDraft, setNewCustomTextDraft] = useState("");
 
   const [editingProductId, setEditingProductId] = useState(null);
   const [editProduct, setEditProduct] = useState(null);
   const [editSizeDraft, setEditSizeDraft] = useState(emptyOption());
-  const [editColorDraft, setEditColorDraft] = useState(emptyOption());
   const [editLogoDraft, setEditLogoDraft] = useState(emptyOption());
+  const [editCustomTextDraft, setEditCustomTextDraft] = useState("");
 
   const selectedSale = sales.find((s) => s.id === selectedSaleId) || null;
+
+  useEffect(() => {
+    fetch("/.netlify/functions/get-site-content")
+      .then((res) => (res.ok ? res.json() : { threads: [] }))
+      .then((data) => setCatalogColors(data.threads || []))
+      .catch(() => setCatalogColors([]));
+  }, []);
 
   const loadSales = async (code) => {
     try {
@@ -136,6 +304,21 @@ export default function SalesAdminPanel() {
     if (res.ok) { setRenamingSaleId(null); await loadSales(adminCode); }
   };
 
+  const duplicateSale = async (sale) => {
+    const suggested = `${sale.name} (Copy)`;
+    const name = window.prompt("Name for the new sale:", suggested);
+    if (!name) return;
+    const res = await fetch("/.netlify/functions/admin-sales", {
+      method: "POST", headers: authHeaders(adminCode),
+      body: JSON.stringify({ action: "duplicate", saleId: sale.id, name }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      await loadSales(adminCode);
+      if (data.sale) setSelectedSaleId(data.sale.id);
+    }
+  };
+
   const deleteSale = async (saleId) => {
     if (!window.confirm("Delete this sale and all its items? This can't be undone.")) return;
     const res = await fetch("/.netlify/functions/admin-sales", {
@@ -152,35 +335,34 @@ export default function SalesAdminPanel() {
     setTimeout(() => setCopiedSlug(""), 1500);
   };
 
-  // ── Product option-list helpers (sizes/colors/logos), shared by create & edit ──
-  const addOptionToDraft = (listSetter, list, draft, draftSetter) => {
-    if (!draft.name.trim()) return;
-    listSetter([...list, { name: draft.name.trim(), extraCost: draft.extraCost }]);
-    draftSetter(emptyOption());
-  };
-  const removeOptionAt = (listSetter, list, idx) => listSetter(list.filter((_, i) => i !== idx));
-
+  // ── Product create/edit ──
   const createProduct = async () => {
     if (!newProduct.name.trim() || !newProduct.price) return;
     const priceCents = Math.round(parseFloat(newProduct.price) * 100);
     if (!Number.isFinite(priceCents) || priceCents <= 0) return;
+
     const res = await fetch("/.netlify/functions/admin-products", {
       method: "POST", headers: authHeaders(adminCode),
       body: JSON.stringify({
         action: "create", saleId: selectedSaleId, name: newProduct.name.trim(), priceCents,
-        sizes: newProduct.sizes, colors: newProduct.colors, logos: newProduct.logos, image: newProduct.image,
+        sizes: newProduct.sizesEnabled ? newProduct.sizes : [],
+        sizesEnabled: newProduct.sizesEnabled,
+        colors: newProduct.colors, logos: newProduct.logos, image: newProduct.image,
+        customTextFields: newProduct.customTextFields,
       }),
     });
-    if (res.ok) { setNewProduct(emptyNewProduct); await loadProducts(selectedSaleId, adminCode); }
+    if (res.ok) { setNewProduct(freshNewProduct()); await loadProducts(selectedSaleId, adminCode); }
   };
 
   const startEdit = (p) => {
     setEditingProductId(p.id);
     setEditProduct({
       name: p.name, price: (p.price_cents / 100).toFixed(2), image: p.image_data || "",
+      sizesEnabled: p.sizes_enabled !== false,
       sizes: (p.sizes || []).map((s) => ({ name: s.name, extraCost: s.extraCost ? (s.extraCost / 100).toFixed(2) : "" })),
-      colors: (p.colors || []).map((c) => ({ name: c.name, extraCost: c.extraCost ? (c.extraCost / 100).toFixed(2) : "" })),
+      colors: (p.colors || []).map((c) => ({ name: c.name, hex: c.hex, extraCost: c.extraCost ? (c.extraCost / 100).toFixed(2) : "" })),
       logos: (p.logos || []).map((l) => ({ name: l.name, extraCost: l.extraCost ? (l.extraCost / 100).toFixed(2) : "" })),
+      customTextFields: (p.custom_text_fields || []).map((f) => ({ label: f.label })),
     });
   };
 
@@ -190,10 +372,22 @@ export default function SalesAdminPanel() {
       method: "POST", headers: authHeaders(adminCode),
       body: JSON.stringify({
         action: "update", productId, name: editProduct.name.trim(), priceCents,
-        sizes: editProduct.sizes, colors: editProduct.colors, logos: editProduct.logos, image: editProduct.image,
+        sizes: editProduct.sizesEnabled ? editProduct.sizes : [],
+        sizesEnabled: editProduct.sizesEnabled,
+        colors: editProduct.colors, logos: editProduct.logos, image: editProduct.image,
+        customTextFields: editProduct.customTextFields,
       }),
     });
     if (res.ok) { setEditingProductId(null); setEditProduct(null); await loadProducts(selectedSaleId, adminCode); }
+  };
+
+  const moveProduct = async (productId, targetSaleId) => {
+    if (!targetSaleId) return;
+    const res = await fetch("/.netlify/functions/admin-products", {
+      method: "POST", headers: authHeaders(adminCode),
+      body: JSON.stringify({ action: "move", productId, targetSaleId }),
+    });
+    if (res.ok) await loadProducts(selectedSaleId, adminCode);
   };
 
   const deleteProduct = async (productId) => {
@@ -204,38 +398,6 @@ export default function SalesAdminPanel() {
     });
     if (res.ok) await loadProducts(selectedSaleId, adminCode);
   };
-
-  const inputStyle = { padding: ".6rem .8rem", border: `1.5px solid ${COLORS.line}`, borderRadius: 8, background: "#FFFFFF", color: COLORS.ink, fontFamily: fontBody, fontSize: ".88rem", outline: "none", width: "100%" };
-  const buttonPrimary = { padding: ".6rem 1.1rem", background: COLORS.green, color: "#FFFFFF", border: "none", borderRadius: 100, fontFamily: fontBody, fontSize: ".78rem", fontWeight: 600, letterSpacing: ".05em", textTransform: "uppercase", cursor: "pointer" };
-  const buttonGhost = { padding: ".35rem .8rem", background: "transparent", color: COLORS.inkSoft, border: `1.5px solid ${COLORS.line}`, borderRadius: 100, fontFamily: fontBody, fontSize: ".7rem", cursor: "pointer" };
-  const buttonDanger = { ...buttonGhost, color: COLORS.red, borderColor: "#e8a0a0" };
-  const smallLabel = { fontSize: ".68rem", letterSpacing: ".08em", textTransform: "uppercase", color: COLORS.inkSoft, fontWeight: 600, marginBottom: ".3rem", display: "block" };
-
-  // Renders the add/edit UI for one option list (sizes, colors, or logos).
-  const OptionListEditor = ({ title, hint, list, setList, draft, setDraft }) => (
-    <div style={{ marginTop: ".85rem", padding: "1rem", background: COLORS.canvas, borderRadius: 10, border: `1px solid ${COLORS.line}` }}>
-      <span style={smallLabel}>{title}</span>
-      {hint && <p style={{ fontSize: ".72rem", color: COLORS.inkSoft, marginBottom: ".6rem" }}>{hint}</p>}
-      {list.length > 0 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: ".4rem", marginBottom: ".6rem" }}>
-          {list.map((opt, i) => (
-            <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: ".45rem .7rem", background: COLORS.card, borderRadius: 6, border: `1px solid ${COLORS.line}` }}>
-              <span style={{ fontSize: ".82rem", color: COLORS.ink }}>{opt.name}</span>
-              <div style={{ display: "flex", alignItems: "center", gap: ".6rem" }}>
-                <span style={{ fontSize: ".76rem", color: COLORS.gold }}>{opt.extraCost ? `+$${Number(opt.extraCost).toFixed(2)}` : "no extra cost"}</span>
-                <button type="button" onClick={() => removeOptionAt(setList, list, i)} style={{ background: "none", border: "none", color: COLORS.inkSoft, cursor: "pointer" }}>✕</button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-      <div style={{ display: "flex", gap: ".5rem" }}>
-        <input type="text" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="Name (e.g. Adult L)" style={{ ...inputStyle, flex: 1 }} />
-        <input type="number" step="0.01" value={draft.extraCost} onChange={(e) => setDraft({ ...draft, extraCost: e.target.value })} placeholder="+$0.00" style={{ ...inputStyle, width: 90 }} />
-        <button type="button" onClick={() => addOptionToDraft(setList, list, draft, setDraft)} style={buttonGhost}>+ Add</button>
-      </div>
-    </div>
-  );
 
   if (!authed) {
     return (
@@ -255,6 +417,7 @@ export default function SalesAdminPanel() {
     <div style={{ minHeight: "100vh", width: "100%", padding: "1.5rem", background: COLORS.canvas, fontFamily: fontBody }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Jost:wght@400;500;600&display=swap');`}</style>
       <div style={{ maxWidth: 1100, margin: "0 auto", display: "grid", gridTemplateColumns: "340px 1fr", gap: "1.5rem" }}>
+
         {/* Sales list */}
         <div>
           <h2 style={{ fontFamily: fontDisplay, fontSize: "1.1rem", color: COLORS.ink, marginBottom: ".75rem" }}>Sales</h2>
@@ -286,6 +449,7 @@ export default function SalesAdminPanel() {
                   </button>
                   <button onClick={() => { setRenamingSaleId(s.id); setRenameValue(s.name); }} style={buttonGhost}>Rename</button>
                   <button onClick={() => copyLink(s.slug)} style={buttonGhost}>{copiedSlug === s.slug ? "Copied!" : "Copy link"}</button>
+                  <button onClick={() => duplicateSale(s)} style={buttonGhost}>Duplicate</button>
                 </div>
                 <p style={{ fontSize: ".68rem", color: COLORS.inkSoft, marginTop: ".4rem", wordBreak: "break-all" }}>/preorder/{s.slug}</p>
               </div>
@@ -311,6 +475,7 @@ export default function SalesAdminPanel() {
                   <input type="text" value={newProduct.name} onChange={(e) => setNewProduct({ ...newProduct, name: e.target.value })} placeholder="Item name (e.g. Youth Tee)" style={{ ...inputStyle, flex: 1 }} />
                   <input type="number" step="0.01" value={newProduct.price} onChange={(e) => setNewProduct({ ...newProduct, price: e.target.value })} placeholder="Base price" style={{ ...inputStyle, width: 110 }} />
                 </div>
+
                 <div>
                   <span style={smallLabel}>Photo (optional)</span>
                   <label style={{ display: "block", cursor: "pointer", border: `2px dashed ${COLORS.line}`, borderRadius: 8, padding: ".75rem", textAlign: "center", background: COLORS.canvas }}>
@@ -319,9 +484,27 @@ export default function SalesAdminPanel() {
                   </label>
                 </div>
 
-                <OptionListEditor title="Sizes" hint="Leave empty to use a generic size list on the form." list={newProduct.sizes} setList={(l) => setNewProduct((p) => ({ ...p, sizes: l }))} draft={newSizeDraft} setDraft={setNewSizeDraft} />
-                <OptionListEditor title="Colors" hint="Leave empty to let the customer type in any color." list={newProduct.colors} setList={(l) => setNewProduct((p) => ({ ...p, colors: l }))} draft={newColorDraft} setDraft={setNewColorDraft} />
-                <OptionListEditor title="Logos / Designs" hint="Leave empty if this item doesn't need a logo choice." list={newProduct.logos} setList={(l) => setNewProduct((p) => ({ ...p, logos: l }))} draft={newLogoDraft} setDraft={setNewLogoDraft} />
+                <div style={{ marginTop: ".85rem" }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: ".5rem", fontSize: ".85rem", color: COLORS.ink, cursor: "pointer" }}>
+                    <input type="checkbox" checked={newProduct.sizesEnabled} onChange={(e) => setNewProduct((p) => ({ ...p, sizesEnabled: e.target.checked }))} />
+                    This item comes in sizes
+                  </label>
+                  {newProduct.sizesEnabled && (
+                    <OptionListEditor
+                      title="Sizes"
+                      hint="Prefilled with your standard sizes — delete any you don't need for this item."
+                      list={newProduct.sizes}
+                      setList={(l) => setNewProduct((p) => ({ ...p, sizes: l }))}
+                      draft={newSizeDraft} setDraft={setNewSizeDraft}
+                    />
+                  )}
+                </div>
+
+                <ColorCatalogPicker catalogColors={catalogColors} selected={newProduct.colors} setSelected={(l) => setNewProduct((p) => ({ ...p, colors: l }))} />
+
+                <OptionListEditor title="Logos / Additional Designs" hint="Named add-ons with their own cost — an extra placement, a bigger logo, etc. Leave empty if this item doesn't need any." list={newProduct.logos} setList={(l) => setNewProduct((p) => ({ ...p, logos: l }))} draft={newLogoDraft} setDraft={setNewLogoDraft} />
+
+                <CustomTextFieldsEditor fields={newProduct.customTextFields} setFields={(l) => setNewProduct((p) => ({ ...p, customTextFields: l }))} draftLabel={newCustomTextDraft} setDraftLabel={setNewCustomTextDraft} />
 
                 <button onClick={createProduct} style={{ ...buttonPrimary, marginTop: "1rem" }}>Add Item</button>
               </div>
@@ -340,9 +523,23 @@ export default function SalesAdminPanel() {
                           <input type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => { if (e.target.files[0]) resizeImage(e.target.files[0], (img) => setEditProduct((p2) => ({ ...p2, image: img }))); }} />
                           {editProduct.image ? <img src={editProduct.image} alt="" style={{ maxHeight: 100, borderRadius: 6 }} /> : <span style={{ fontSize: ".78rem", color: COLORS.inkSoft }}>Click to upload / replace photo</span>}
                         </label>
-                        <OptionListEditor title="Sizes" list={editProduct.sizes} setList={(l) => setEditProduct((p2) => ({ ...p2, sizes: l }))} draft={editSizeDraft} setDraft={setEditSizeDraft} />
-                        <OptionListEditor title="Colors" list={editProduct.colors} setList={(l) => setEditProduct((p2) => ({ ...p2, colors: l }))} draft={editColorDraft} setDraft={setEditColorDraft} />
-                        <OptionListEditor title="Logos / Designs" list={editProduct.logos} setList={(l) => setEditProduct((p2) => ({ ...p2, logos: l }))} draft={editLogoDraft} setDraft={setEditLogoDraft} />
+
+                        <div style={{ marginTop: ".5rem" }}>
+                          <label style={{ display: "flex", alignItems: "center", gap: ".5rem", fontSize: ".85rem", color: COLORS.ink, cursor: "pointer" }}>
+                            <input type="checkbox" checked={editProduct.sizesEnabled} onChange={(e) => setEditProduct((p2) => ({ ...p2, sizesEnabled: e.target.checked }))} />
+                            This item comes in sizes
+                          </label>
+                          {editProduct.sizesEnabled && (
+                            <OptionListEditor title="Sizes" list={editProduct.sizes} setList={(l) => setEditProduct((p2) => ({ ...p2, sizes: l }))} draft={editSizeDraft} setDraft={setEditSizeDraft} />
+                          )}
+                        </div>
+
+                        <ColorCatalogPicker catalogColors={catalogColors} selected={editProduct.colors} setSelected={(l) => setEditProduct((p2) => ({ ...p2, colors: l }))} />
+
+                        <OptionListEditor title="Logos / Additional Designs" list={editProduct.logos} setList={(l) => setEditProduct((p2) => ({ ...p2, logos: l }))} draft={editLogoDraft} setDraft={setEditLogoDraft} />
+
+                        <CustomTextFieldsEditor fields={editProduct.customTextFields} setFields={(l) => setEditProduct((p2) => ({ ...p2, customTextFields: l }))} draftLabel={editCustomTextDraft} setDraftLabel={setEditCustomTextDraft} />
+
                         <div style={{ display: "flex", gap: ".5rem", marginTop: "1rem" }}>
                           <button onClick={() => saveEdit(p.id)} style={buttonPrimary}>Save</button>
                           <button onClick={() => { setEditingProductId(null); setEditProduct(null); }} style={buttonGhost}>Cancel</button>
@@ -363,10 +560,23 @@ export default function SalesAdminPanel() {
                             </div>
                           </div>
                           <p style={{ fontSize: ".75rem", color: COLORS.inkSoft, marginTop: ".3rem" }}>
-                            {(p.sizes || []).length} size{(p.sizes || []).length !== 1 ? "s" : ""} ·{" "}
+                            {p.sizes_enabled === false ? "no sizes" : `${(p.sizes || []).length} size${(p.sizes || []).length !== 1 ? "s" : ""}`} ·{" "}
                             {(p.colors || []).length} color{(p.colors || []).length !== 1 ? "s" : ""} ·{" "}
-                            {(p.logos || []).length} logo{(p.logos || []).length !== 1 ? "s" : ""} defined
+                            {(p.logos || []).length} design{(p.logos || []).length !== 1 ? "s" : ""} ·{" "}
+                            {(p.custom_text_fields || []).length} text field{(p.custom_text_fields || []).length !== 1 ? "s" : ""}
                           </p>
+                          <div style={{ marginTop: ".5rem" }}>
+                            <select
+                              defaultValue=""
+                              onChange={(e) => { moveProduct(p.id, e.target.value); e.target.value = ""; }}
+                              style={{ ...inputStyle, width: "auto", fontSize: ".78rem", padding: ".35rem .6rem" }}
+                            >
+                              <option value="" disabled>Move to another sale…</option>
+                              {sales.filter((s) => s.id !== selectedSaleId).map((s) => (
+                                <option key={s.id} value={s.id}>{s.name}</option>
+                              ))}
+                            </select>
+                          </div>
                         </div>
                       </div>
                     )}
