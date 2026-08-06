@@ -54,6 +54,9 @@ export default function PreorderIntakeForm({ slug, onChooseSlug }) {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
 
+  // When set to an image URL, shows that photo full-size in an overlay.
+  const [expandedImage, setExpandedImage] = useState(null);
+
   useEffect(() => {
     let cancelled = false;
     setLoadingSale(true);
@@ -83,6 +86,14 @@ export default function PreorderIntakeForm({ slug, onChooseSlug }) {
 
     return () => { cancelled = true; };
   }, [slug]);
+
+  // Lets the customer press Escape to close the enlarged photo view.
+  useEffect(() => {
+    if (!expandedImage) return;
+    const onKeyDown = (e) => { if (e.key === "Escape") setExpandedImage(null); };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [expandedImage]);
 
   const productById = (id) => products.find((p) => p.id === id);
   const updateField = (field, value) => setForm((f) => ({ ...f, [field]: value }));
@@ -236,6 +247,7 @@ export default function PreorderIntakeForm({ slug, onChooseSlug }) {
   }
 
   return (
+    <>
     <div className="section">
       <p className="section-label">Pre-Order</p>
       <h2 className="section-title" style={{ marginBottom: ".5rem" }}>{sale.name}</h2>
@@ -321,7 +333,12 @@ export default function PreorderIntakeForm({ slug, onChooseSlug }) {
 
                 {product && product.image && (
                   <div style={{ marginBottom: ".75rem" }}>
-                    <img src={product.image} alt={product.name} style={{ width: "100%", maxHeight: 180, objectFit: "cover", borderRadius: 8 }} />
+                    <img
+                      src={product.image}
+                      alt={product.name}
+                      onClick={() => setExpandedImage(product.image)}
+                      style={{ width: "100%", maxHeight: 180, objectFit: "cover", borderRadius: 8, cursor: "zoom-in" }}
+                    />
                   </div>
                 )}
 
@@ -467,5 +484,40 @@ export default function PreorderIntakeForm({ slug, onChooseSlug }) {
         </button>
       </form>
     </div>
+
+    {expandedImage && (
+      <div
+        onClick={() => setExpandedImage(null)}
+        style={{
+          position: "fixed", inset: 0, zIndex: 1000,
+          background: "rgba(0,0,0,0.85)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          padding: "2rem", cursor: "zoom-out",
+        }}
+      >
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); setExpandedImage(null); }}
+          aria-label="Close"
+          style={{
+            position: "fixed", top: "1.25rem", right: "1.25rem",
+            width: 44, height: 44, borderRadius: "50%",
+            background: "rgba(255,255,255,0.95)", border: "none",
+            fontSize: "1.3rem", lineHeight: 1, color: "#1e1e1e",
+            cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+            boxShadow: "0 4px 16px rgba(0,0,0,.3)",
+          }}
+        >
+          ✕
+        </button>
+        <img
+          src={expandedImage}
+          alt=""
+          onClick={(e) => e.stopPropagation()}
+          style={{ maxWidth: "90vw", maxHeight: "88vh", objectFit: "contain", borderRadius: 10, boxShadow: "0 12px 48px rgba(0,0,0,.5)", cursor: "default" }}
+        />
+      </div>
+    )}
+    </>
   );
 }
