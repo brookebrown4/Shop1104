@@ -1,7 +1,10 @@
 // netlify/functions/admin-products.js
 //
-// Admin-only. Manages products (priced items) within a sale. Gated by the
-// same x-admin-code header as admin-sales.js.
+// Admin-only. Dual-purpose: manages the general catalog (Main Shop/client
+// portal products, filtered by `store`/`portalCode`, used by Admin.jsx's
+// Products tab) and, for the now-retired preorder-campaign flow's leftover
+// data, sale-scoped products (filtered by `saleId`). Gated by the same
+// x-admin-code header as the rest of the admin panel.
 //
 // Each product can define its own:
 //   - sizes:  [{ name, extraCost }]      -- hidden entirely from customers if sizesEnabled is false

@@ -1,32 +1,23 @@
 import { useState, useEffect, useCallback } from "react";
-import PreorderIntakeForm from "./components/PreorderIntakeForm";
-import SalesAdminPanel from "./components/SalesAdminPanel";
 import ShopApp from "./shop/ShopApp";
 
 const LOGO_URL = "/Shop_1104_Logo.jpg";
 
 // ── URL routing (lightweight, no router library needed) ─────────────────────
-// Maps a browser path like "/preorder" to the internal page name, and back.
+// Maps a browser path like "/shop" to the internal page name, and back.
 // This is what makes each page a real, shareable link instead of just
 // internal state that resets to the homepage on refresh.
-const ROUTABLE_PAGES = ["about","gallery","catalog","order","clients","admin","preorder","salesadmin","shop","product","cart","checkout","custom","contact"];
+const ROUTABLE_PAGES = ["about","gallery","catalog","order","clients","admin","shop","product","cart","checkout","custom","contact"];
 // General storefront pages, rebuilt to match the Shop1104.dc.html mockup —
 // this replaces the old preorder-campaign flow as the site's primary
 // experience (see sql/2026-08-07_general_catalog.sql). ShopApp owns its own
 // nav/CSS/sub-screen state; App.jsx just mounts it for these page values
-// instead of falling through to the legacy branches below. The old
-// preorder/salesadmin pages are left in place, reachable directly by URL,
-// until they're removed for good.
+// instead of falling through to the legacy branches below.
 const GENERAL_SHOP_PAGES = new Set(["home","shop","product","cart","checkout","custom","catalog","contact","clients","admin"]);
 function pathToPage(pathname){
   const parts=(pathname||"/").replace(/^\/|\/$/g,"").split("/");
   const slug=parts[0]||"";
   return ROUTABLE_PAGES.includes(slug)?slug:"home";
-}
-// For /preorder/some-slug, returns "some-slug"; for bare /preorder, returns null.
-function pathToPreorderSlug(pathname){
-  const parts=(pathname||"/").replace(/^\/|\/$/g,"").split("/");
-  return parts[0]==="preorder" && parts[1] ? parts[1] : null;
 }
 function pageToPath(page){
   return page==="home" ? "/" : `/${page}`;
@@ -500,7 +491,6 @@ function generateInvoicePDF({settings, portal, portalCode, checkoutForm, cartIte
 export default function App(){
   const [ready,setReady]=useState(false);
   const [page,setPage]=useState(()=>pathToPage(window.location.pathname));
-  const [preorderSlug,setPreorderSlug]=useState(()=>pathToPreorderSlug(window.location.pathname));
 
   // Admin auth: no password lives in the browser. The code the person types
   // is only ever sent as a header and checked server-side.
@@ -586,22 +576,14 @@ export default function App(){
   const showToast=(msg)=>{setToast(msg);setTimeout(()=>setToast(null),3200);};
   const nav=(p)=>{
     setPage(p);
-    if(p!=="preorder") setPreorderSlug(null);
     const path=pageToPath(p);
-    if(window.location.pathname!==path) window.history.pushState({},"",path);
-    window.scrollTo(0,0);
-  };
-  const navToPreorderSlug=(slug)=>{
-    setPage("preorder");
-    setPreorderSlug(slug);
-    const path=`/preorder/${slug}`;
     if(window.location.pathname!==path) window.history.pushState({},"",path);
     window.scrollTo(0,0);
   };
 
   // Keep state in sync with the browser's back/forward buttons.
   useEffect(()=>{
-    const onPop=()=>{setPage(pathToPage(window.location.pathname));setPreorderSlug(pathToPreorderSlug(window.location.pathname));};
+    const onPop=()=>{setPage(pathToPage(window.location.pathname));};
     window.addEventListener("popstate",onPop);
     return ()=>window.removeEventListener("popstate",onPop);
   },[]);
@@ -717,9 +699,6 @@ export default function App(){
   // ── General storefront (Home/Shop/Product/Cart/Checkout/Custom/Catalog/Contact/Client Portal/Admin) ──
   if(GENERAL_SHOP_PAGES.has(page)) return <ShopApp page={page} nav={nav} initialContent={rawSiteContent}/>;
 
-  // ── Sales & Pricing admin (separate login, manages pre-order sales/products) ──
-  if(page==="salesadmin") return <SalesAdminPanel/>;
-
   // ── Admin gate ──
   if(page==="admin"&&!adminUnlocked) return(
     <>
@@ -780,7 +759,6 @@ export default function App(){
             {[["clients","Client Portals"],["products","Portal Products"],["invoices","Invoices"]].map(([t,l])=>(
               <div key={t} className={`admin-nav${adminTab===t?" active":""}`} onClick={()=>setAdminTab(t)}>{l}</div>
             ))}
-            <div className="admin-nav" onClick={()=>nav("salesadmin")}>Pre-Order Sales →</div>
           </div>
 
           <div className="admin-main">
@@ -1605,7 +1583,7 @@ export default function App(){
           <div><div className="nav-logo-text">{settings.businessName}</div><div className="nav-logo-sub">{settings.tagline}</div></div>
         </div>
         <ul className="nav-links">
-          {[["home","Home"],["about","About"],["gallery","Our Work"],["catalog","Catalog"],["order","Order"],["preorder","Pre-Order"]].map(([p,l])=>(
+          {[["home","Home"],["about","About"],["gallery","Our Work"],["catalog","Catalog"],["order","Order"]].map(([p,l])=>(
             <li key={p}><a className={page===p?"active":""} onClick={()=>nav(p)}>{l}</a></li>
           ))}
           <li><a className={page==="clients"?"active":""} onClick={()=>nav("clients")}>Client Portal</a></li>
@@ -1811,9 +1789,6 @@ export default function App(){
             </div>
           </div>
         </div>}
-
-        {/* PRE-ORDER */}
-        {page==="preorder"&&<PreorderIntakeForm slug={preorderSlug} onChooseSlug={navToPreorderSlug}/>}
 
         {/* CLIENT PORTAL */}
         {page==="clients"&&<>
