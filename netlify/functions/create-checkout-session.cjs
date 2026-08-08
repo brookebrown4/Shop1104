@@ -30,7 +30,7 @@ exports.handler = async (event) => {
 
   const { data: order, error } = await supabase
     .from("orders")
-    .select("id, customer_email, garments, status")
+    .select("id, customer_email, garments, status, shipping_cents")
     .eq("id", orderId)
     .single();
 
@@ -42,14 +42,16 @@ exports.handler = async (event) => {
   }
 
   // Group garments by product so identical items become one line item
-  // with a quantity, rather than N separate lines.
+  // with a quantity, rather than N separate lines. `qty` is only present
+  // on general-shop orders (submit-general-order.cjs); preorder-campaign
+  // orders (submit-order.cjs) list one entry per unit, so it defaults to 1.
   const grouped = new Map();
   for (const g of order.garments) {
     const key = `${g.product_id}:${g.price_cents}`;
     if (!grouped.has(key)) {
       grouped.set(key, { name: g.product_name, unit_amount: g.price_cents, quantity: 0 });
     }
-    grouped.get(key).quantity += 1;
+    grouped.get(key).quantity += g.qty || 1;
   }
 
   const siteUrl = process.env.URL || "http://localhost:8888";
@@ -65,7 +67,7 @@ exports.handler = async (event) => {
       currency: "usd",
       product_data: {
         name: item.name,
-        description: "Shop 1104 pre-order. Shipping (if applicable) billed separately.",
+        description: "Shop 1104 — custom embroidery order.",
       },
       unit_amount: item.unit_amount,
     },
@@ -89,6 +91,17 @@ exports.handler = async (event) => {
         currency: "usd",
         product_data: { name: `Card Processing Fee (${feeRatePercent}%)` },
         unit_amount: feeCents,
+      },
+      quantity: 1,
+    });
+  }
+
+  if (order.shipping_cents > 0) {
+    lineItems.push({
+      price_data: {
+        currency: "usd",
+        product_data: { name: "Shipping" },
+        unit_amount: order.shipping_cents,
       },
       quantity: 1,
     });

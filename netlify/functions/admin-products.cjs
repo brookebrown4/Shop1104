@@ -42,14 +42,52 @@ function cleanTextFields(list) {
     .map((f) => ({ label: f.label.trim() }));
 }
 
+function cleanNameList(list) {
+  if (!Array.isArray(list)) return [];
+  return list.filter((n) => typeof n === "string" && n.trim()).map((n) => n.trim());
+}
+
+function cleanAddons(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter((a) => a && a.name && a.name.trim())
+    .map((a) => ({
+      name: a.name.trim(),
+      extraCost: Number.isFinite(Number(a.extraCost ?? a.price)) ? Math.round(Number(a.extraCost ?? a.price) * 100) : 0,
+    }));
+}
+
 exports.handler = async (event) => {
   if (!isAuthorized(event)) {
     return { statusCode: 401, body: JSON.stringify({ error: "Not authorized." }) };
   }
 
   if (event.httpMethod === "GET") {
-    const saleId = event.queryStringParameters && event.queryStringParameters.saleId;
-    if (!saleId) return { statusCode: 400, body: JSON.stringify({ error: "saleId query param is required." }) };
+    const q = event.queryStringParameters || {};
+
+    // General catalog listing for the Products admin tab: ?store=all (every
+    // store), ?store= (Main Shop only, portal_code null), or ?store=CODE
+    // (one client portal). Distinct from the saleId path below, which is
+    // the preorder-campaign product list.
+    if ("store" in q) {
+      let query = supabase
+        .from("products")
+        .select("id, name, price_cents, category, portal_code, hidden, sold_out, sort_order, colors, sizes, sizes_enabled, threads, placements, logos, addons, image_data")
+        .order("sort_order", { ascending: true });
+      if (q.store === "all") {
+        // no filter
+      } else if (q.store) {
+        query = query.eq("portal_code", q.store.toUpperCase());
+      } else {
+        query = query.is("portal_code", null);
+      }
+      const { data, error } = await query;
+      if (error) return { statusCode: 500, body: JSON.stringify({ error: "Could not load products." }) };
+      return { statusCode: 200, body: JSON.stringify({ products: data }) };
+    }
+
+    const saleId = q.saleId;
+    if (!saleId) return { statusCode: 400, body: JSON.stringify({ error: "saleId or store query param is required." }) };
 
     const { data, error } = await supabase
       .from("products")
@@ -75,20 +113,32 @@ exports.handler = async (event) => {
   const { action } = body;
 
   if (action === "create") {
-    const { saleId, name, priceCents } = body;
-    if (!saleId || !name || !name.trim() || !Number.isFinite(priceCents)) {
-      return { statusCode: 400, body: JSON.stringify({ error: "saleId, name, and priceCents are required." }) };
+    // General-catalog products (Main Shop or a client portal) omit saleId
+    // and pass portalCode ('' means Main Shop) instead.
+    const { saleId, portalCode, name, priceCents } = body;
+    if (!name || !name.trim() || !Number.isFinite(priceCents)) {
+      return { statusCode: 400, body: JSON.stringify({ error: "name and priceCents are required." }) };
+    }
+    if (saleId === undefined && portalCode === undefined) {
+      return { statusCode: 400, body: JSON.stringify({ error: "saleId or portalCode is required." }) };
     }
 
     const { data, error } = await supabase
       .from("products")
       .insert({
-        sale_id: saleId,
+        sale_id: saleId || null,
+        portal_code: portalCode ? portalCode.trim().toUpperCase() : null,
+        category: body.category || null,
+        hidden: !!body.hidden,
+        sold_out: !!body.soldOut,
         name: name.trim(),
         price_cents: Math.round(priceCents),
         colors: cleanOptionList(body.colors),
         sizes: cleanOptionList(body.sizes),
         sizes_enabled: body.sizesEnabled !== false,
+        threads: cleanNameList(body.threads),
+        placements: cleanNameList(body.placements),
+        addons: cleanAddons(body.addons),
         logos: cleanOptionList(body.logos),
         image_data: body.image || null,
         custom_text_fields: cleanTextFields(body.customTextFields),
@@ -107,9 +157,16 @@ exports.handler = async (event) => {
     const updates = {};
     if (name && name.trim()) updates.name = name.trim();
     if (Number.isFinite(priceCents)) updates.price_cents = Math.round(priceCents);
+    if (body.category !== undefined) updates.category = body.category || null;
+    if (body.portalCode !== undefined) updates.portal_code = body.portalCode ? body.portalCode.trim().toUpperCase() : null;
+    if (body.hidden !== undefined) updates.hidden = !!body.hidden;
+    if (body.soldOut !== undefined) updates.sold_out = !!body.soldOut;
     if (body.colors !== undefined) updates.colors = cleanOptionList(body.colors);
     if (body.sizes !== undefined) updates.sizes = cleanOptionList(body.sizes);
     if (body.sizesEnabled !== undefined) updates.sizes_enabled = !!body.sizesEnabled;
+    if (body.threads !== undefined) updates.threads = cleanNameList(body.threads);
+    if (body.placements !== undefined) updates.placements = cleanNameList(body.placements);
+    if (body.addons !== undefined) updates.addons = cleanAddons(body.addons);
     if (body.logos !== undefined) updates.logos = cleanOptionList(body.logos);
     if (body.image !== undefined) updates.image_data = body.image || null;
     if (body.customTextFields !== undefined) updates.custom_text_fields = cleanTextFields(body.customTextFields);

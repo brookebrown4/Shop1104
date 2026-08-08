@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import PreorderIntakeForm from "./components/PreorderIntakeForm";
 import SalesAdminPanel from "./components/SalesAdminPanel";
+import ShopApp from "./shop/ShopApp";
 
 const LOGO_URL = "/Shop_1104_Logo.jpg";
 
@@ -8,7 +9,15 @@ const LOGO_URL = "/Shop_1104_Logo.jpg";
 // Maps a browser path like "/preorder" to the internal page name, and back.
 // This is what makes each page a real, shareable link instead of just
 // internal state that resets to the homepage on refresh.
-const ROUTABLE_PAGES = ["about","gallery","catalog","order","clients","admin","preorder","salesadmin"];
+const ROUTABLE_PAGES = ["about","gallery","catalog","order","clients","admin","preorder","salesadmin","shop","product","cart","checkout","custom","contact"];
+// General storefront pages, rebuilt to match the Shop1104.dc.html mockup —
+// this replaces the old preorder-campaign flow as the site's primary
+// experience (see sql/2026-08-07_general_catalog.sql). ShopApp owns its own
+// nav/CSS/sub-screen state; App.jsx just mounts it for these page values
+// instead of falling through to the legacy branches below. The old
+// preorder/salesadmin pages are left in place, reachable directly by URL,
+// until they're removed for good.
+const GENERAL_SHOP_PAGES = new Set(["home","shop","product","cart","checkout","custom","catalog","contact","clients","admin"]);
 function pathToPage(pathname){
   const parts=(pathname||"/").replace(/^\/|\/$/g,"").split("/");
   const slug=parts[0]||"";
@@ -700,6 +709,9 @@ export default function App(){
   }
 
   if(!ready) return(<><style>{`body{background:#ebe8e8;display:flex;align-items:center;justify-content:center;height:100vh;font-family:'Jost',sans-serif;color:#52805f;font-size:1rem;letter-spacing:.1em;}`}</style><div>Loading Shop 1104…</div></>);
+
+  // ── General storefront (Home/Shop/Product/Cart/Checkout/Custom/Catalog/Contact/Client Portal/Admin) ──
+  if(GENERAL_SHOP_PAGES.has(page)) return <ShopApp page={page} nav={nav}/>;
 
   // ── Sales & Pricing admin (separate login, manages pre-order sales/products) ──
   if(page==="salesadmin") return <SalesAdminPanel/>;

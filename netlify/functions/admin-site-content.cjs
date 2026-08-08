@@ -23,7 +23,7 @@ function isAuthorized(event) {
   return code && process.env.ADMIN_ACCESS_CODE && code === process.env.ADMIN_ACCESS_CODE;
 }
 
-const SINGLETON_KEYS = new Set(["settings", "hero", "about"]);
+const SINGLETON_KEYS = new Set(["settings", "hero", "about", "shippingSettings", "catalogResources"]);
 
 // Maps each list resource to its table + how to translate the frontend's
 // camelCase fields into the database's snake_case columns.
@@ -64,6 +64,22 @@ const LIST_TABLES = {
   designs: {
     table: "design_files",
     toRow: (f) => ({ name: f.name, category: f.category, files: f.files }),
+  },
+  categories: {
+    table: "categories",
+    toRow: (f) => ({ name: f.name, allowed_colors: f.allowedColors || [] }),
+  },
+  colors: {
+    table: "garment_colors",
+    toRow: (f) => ({ name: f.name, hex: f.hex }),
+  },
+  placements: {
+    table: "placements",
+    toRow: (f) => ({ name: f.name }),
+  },
+  reviews: {
+    table: "reviews",
+    toRow: (f) => ({ name: f.name, rating: Math.min(5, Math.max(1, parseInt(f.rating, 10) || 5)), quote: f.quote }),
   },
 };
 
