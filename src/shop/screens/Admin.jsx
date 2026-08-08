@@ -120,7 +120,7 @@ export default function Admin({ content, categories, garmentColors, threadColors
 // ── Products ─────────────────────────────────────────────────────────────
 
 const emptyProduct = {
-  name: "", priceCents: "", category: "", portalCode: "", hidden: false, soldOut: false, featured: false,
+  name: "", priceCents: "", category: "", portalCode: "", hidden: false, soldOut: false, featured: false, image: "",
   sizes: {}, colors: {}, threads: [], placements: [], designs: [], addons: [],
 };
 
@@ -132,6 +132,7 @@ function ProductsTab({ adminCode, categories, garmentColors, threadColors, place
   const [form, setForm] = useState(emptyProduct);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [imageBusy, setImageBusy] = useState(false);
 
   const load = useCallback(() => {
     api.adminListProducts(adminCode, store).then((r) => setProducts(r.products || [])).catch(() => {});
@@ -160,7 +161,7 @@ function ProductsTab({ adminCode, categories, garmentColors, threadColors, place
     setEditingId(p.id);
     setForm({
       name: p.name, priceCents: (p.price_cents / 100).toString(), category: p.category || "", portalCode: p.portal_code || "",
-      hidden: !!p.hidden, soldOut: !!p.sold_out, featured: !!p.featured,
+      hidden: !!p.hidden, soldOut: !!p.sold_out, featured: !!p.featured, image: p.image_data || "",
       sizes: sizesObj, colors: colorsObj,
       threads: p.threads || [], placements: p.placements || [],
       designs: (p.logos || []).map((d) => ({ name: d.name, extraCost: (d.extraCost || 0) / 100 })),
@@ -189,6 +190,7 @@ function ProductsTab({ adminCode, categories, garmentColors, threadColors, place
         hidden: form.hidden,
         soldOut: form.soldOut,
         featured: form.featured,
+        image: form.image || null,
         sizes: Object.entries(form.sizes).map(([name, cost]) => ({ name, extraCost: Math.round((cost || 0) * 100) })),
         colors: Object.entries(form.colors).map(([name, cost]) => ({ name, extraCost: Math.round((cost || 0) * 100), hex: (garmentColors.find((c) => c.name === name) || {}).hex })),
         threads: form.threads,
@@ -233,6 +235,27 @@ function ProductsTab({ adminCode, categories, garmentColors, threadColors, place
         <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 15 }}>
           <div className="field"><label>Product name</label><input className="input" value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="e.g. Snapback Cap" required /></div>
           <div className="field"><label>Price</label><input className="input" type="number" min="0" step="0.01" value={form.priceCents} onChange={(e) => set("priceCents", e.target.value)} placeholder="24.00" required /></div>
+        </div>
+        <div className="field">
+          <label>Photo</label>
+          <div style={{ display: "flex", alignItems: "center", gap: 15 }}>
+            {form.image && <div className="halftone" style={{ width: 70, height: 70, flexShrink: 0 }}><img src={form.image} alt="" /></div>}
+            <input
+              className="input"
+              type="file"
+              accept="image/*"
+              disabled={imageBusy}
+              onChange={async (e) => {
+                const file = e.target.files[0];
+                e.target.value = "";
+                if (!file) return;
+                setImageBusy(true);
+                try { set("image", await resizeImageToDataUrl(file)); } finally { setImageBusy(false); }
+              }}
+            />
+            {imageBusy && <span className="text-muted" style={{ fontSize: 12 }}>Processing…</span>}
+            {form.image && <a href="#" onClick={(e) => { e.preventDefault(); set("image", ""); }}>Remove</a>}
+          </div>
         </div>
         <div className="field">
           <label>Category</label>
