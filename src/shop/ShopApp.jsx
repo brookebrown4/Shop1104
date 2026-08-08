@@ -217,7 +217,7 @@ export default function ShopApp({ page, nav }) {
           </a>
         </nav>
 
-        {screen === "home" && <Home {...screenProps} />}
+        {screen === "home" && <Home {...screenProps} onSelectProduct={(id) => goTo("product", { productId: id })} />}
         {screen === "shop" && <Shop {...screenProps} onSelectProduct={(id) => goTo("product", { productId: id })} />}
         {screen === "product" && <ProductDetail {...screenProps} onBack={() => goTo("shop")} />}
         {screen === "cart" && <Cart {...screenProps} onCheckout={() => goTo("checkout")} />}
