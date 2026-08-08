@@ -5,20 +5,6 @@ const RESOURCE_LABELS = [
   { key: "designs", label: "Designs Available" },
 ];
 
-// Both a new-tab preview (window.open, blocked by the popup blocker even
-// from a direct click) and an in-page iframe (Chrome's PDF viewer renders
-// a solid black box instead of the page) turned out to be unreliable here.
-// Navigating the current tab straight to the blob: URL is the exact same
-// code path Chrome uses for any ordinary link to a .pdf file, so it can't
-// have either of those problems -- the browser's real, full PDF viewer
-// takes over the tab. The user goes back to return to the site.
-async function previewPdf(dataUrl) {
-  const res = await fetch(dataUrl);
-  const blob = await res.blob();
-  const blobUrl = URL.createObjectURL(blob);
-  window.location.href = blobUrl;
-}
-
 export default function CatalogPage({ content }) {
   const resources = (content && content.catalogResources) || {};
   const gallery = (content && content.gallery) || [];
@@ -49,7 +35,10 @@ export default function CatalogPage({ content }) {
             <div key={r.key} className="card">
               <div className="card-title">{r.label}</div>
               {res && res.url ? (
-                <button type="button" className="btn btn-secondary" onClick={() => previewPdf(res.url)}>Preview PDF</button>
+                // A real hosted https:// URL now (Supabase Storage), not an
+                // embedded data: URL -- browsers handle this natively, no
+                // special handling needed for it to preview correctly.
+                <a className="btn btn-secondary" href={res.url} target="_blank" rel="noreferrer">Preview PDF</a>
               ) : (
                 <p className="text-muted" style={{ fontSize: 12 }}>Not uploaded yet</p>
               )}

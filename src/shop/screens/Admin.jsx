@@ -616,15 +616,18 @@ const RESOURCE_LABELS = [
 function CatalogTab({ adminCode, content }) {
   const [resources, setResources] = useState((content && content.catalogResources) || {});
   const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
 
   const upload = async (key, file) => {
     if (!file) return;
     setBusy(key);
+    setError("");
     try {
-      const url = await fileToDataUrl(file);
-      const next = { ...resources, [key]: { url, fileName: file.name } };
-      await api.adminSiteContent(adminCode, { resource: "catalogResources", action: "update", value: next });
-      setResources(next);
+      const fileBase64 = await fileToDataUrl(file);
+      const { url, fileName } = await api.adminUploadCatalogResource(adminCode, { key, fileName: file.name, fileBase64 });
+      setResources((r) => ({ ...r, [key]: { url, fileName } }));
+    } catch (err) {
+      setError(err.message || "Upload failed.");
     } finally {
       setBusy("");
     }
@@ -634,12 +637,14 @@ function CatalogTab({ adminCode, content }) {
     <div>
       <h2>Catalog reference PDFs</h2>
       <p className="text-muted">Upload or replace the PDF customers see on the Catalog page. Swap the file any time.</p>
+      {error && <p style={{ color: "var(--color-accent-2-700)" }}>{error}</p>}
       <div style={{ display: "flex", flexDirection: "column", gap: 15, maxWidth: 480, marginTop: 15 }}>
         {RESOURCE_LABELS.map((r) => (
           <div className="field" key={r.key}>
             <label>{r.label}</label>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <input className="input" type="file" accept="application/pdf" onChange={(e) => upload(r.key, e.target.files[0])} disabled={busy === r.key} />
+              {busy === r.key && <span className="text-muted" style={{ fontSize: 12 }}>Uploading…</span>}
               {resources[r.key] && resources[r.key].url && <span className="tag tag-accent">{resources[r.key].fileName}</span>}
             </div>
           </div>
