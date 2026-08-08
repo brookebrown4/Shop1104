@@ -19,7 +19,7 @@ exports.handler = async (event) => {
 
   let query = supabase
     .from("products")
-    .select("id, name, price_cents, category, portal_code, colors, sizes, sizes_enabled, threads, placements, logos, addons, image_data, hidden, sold_out, sort_order")
+    .select("id, name, price_cents, category, portal_code, colors, sizes, sizes_enabled, threads, placements, logos, addons, image_data, hidden, sold_out, featured, sort_order")
     .eq("hidden", false)
     // Preorder-campaign products (sale_id set) are a separate flow, not
     // part of the general catalog, even though they share this table.
@@ -48,6 +48,7 @@ exports.handler = async (event) => {
     addons: p.addons || [],
     image: p.image_data || "",
     soldOut: !!p.sold_out,
+    featured: !!p.featured,
   }));
 
   return { statusCode: 200, body: JSON.stringify({ products }) };

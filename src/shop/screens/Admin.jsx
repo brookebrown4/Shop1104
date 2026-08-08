@@ -120,7 +120,7 @@ export default function Admin({ content, categories, garmentColors, threadColors
 // ── Products ─────────────────────────────────────────────────────────────
 
 const emptyProduct = {
-  name: "", priceCents: "", category: "", portalCode: "", hidden: false, soldOut: false,
+  name: "", priceCents: "", category: "", portalCode: "", hidden: false, soldOut: false, featured: false,
   sizes: {}, colors: {}, threads: [], placements: [], designs: [], addons: [],
 };
 
@@ -160,7 +160,7 @@ function ProductsTab({ adminCode, categories, garmentColors, threadColors, place
     setEditingId(p.id);
     setForm({
       name: p.name, priceCents: (p.price_cents / 100).toString(), category: p.category || "", portalCode: p.portal_code || "",
-      hidden: !!p.hidden, soldOut: !!p.sold_out,
+      hidden: !!p.hidden, soldOut: !!p.sold_out, featured: !!p.featured,
       sizes: sizesObj, colors: colorsObj,
       threads: p.threads || [], placements: p.placements || [],
       designs: (p.logos || []).map((d) => ({ name: d.name, extraCost: (d.extraCost || 0) / 100 })),
@@ -188,6 +188,7 @@ function ProductsTab({ adminCode, categories, garmentColors, threadColors, place
         portalCode: form.portalCode || "",
         hidden: form.hidden,
         soldOut: form.soldOut,
+        featured: form.featured,
         sizes: Object.entries(form.sizes).map(([name, cost]) => ({ name, extraCost: Math.round((cost || 0) * 100) })),
         colors: Object.entries(form.colors).map(([name, cost]) => ({ name, extraCost: Math.round((cost || 0) * 100), hex: (garmentColors.find((c) => c.name === name) || {}).hex })),
         threads: form.threads,
@@ -299,6 +300,7 @@ function ProductsTab({ adminCode, categories, garmentColors, threadColors, place
         <div style={{ display: "flex", gap: 20 }}>
           <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 14, cursor: "pointer" }}><input type="checkbox" checked={form.hidden} onChange={(e) => set("hidden", e.target.checked)} />Hide from shop</label>
           <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 14, cursor: "pointer" }}><input type="checkbox" checked={form.soldOut} onChange={(e) => set("soldOut", e.target.checked)} />Sold out / out of stock</label>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 14, cursor: "pointer" }}><input type="checkbox" checked={form.featured} onChange={(e) => set("featured", e.target.checked)} />Featured on homepage</label>
         </div>
 
         <div style={{ display: "flex", gap: 15, alignItems: "center" }}>

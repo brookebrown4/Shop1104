@@ -1,5 +1,9 @@
 export default function Home({ goTo, products, categories, reviews, onSelectProduct }) {
-  const featured = (products || []).slice(0, 4);
+  // Only products explicitly marked "Featured" in Admin -- falls back to
+  // the first 4 in the catalog if nothing's been marked yet, so this
+  // section isn't empty before anyone's had a chance to set it up.
+  const explicitlyFeatured = (products || []).filter((p) => p.featured);
+  const featured = (explicitlyFeatured.length > 0 ? explicitlyFeatured : products || []).slice(0, 4);
   // Same fix as the Shop page's filter list: only show a category tile if
   // a product is actually in it, rather than every admin-configured
   // category (or, with none configured at all, four hardcoded placeholder

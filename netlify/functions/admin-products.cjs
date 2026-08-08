@@ -75,7 +75,7 @@ exports.handler = async (event) => {
     if ("store" in q) {
       let query = supabase
         .from("products")
-        .select("id, name, price_cents, category, portal_code, hidden, sold_out, sort_order, colors, sizes, sizes_enabled, threads, placements, logos, addons, image_data")
+        .select("id, name, price_cents, category, portal_code, hidden, sold_out, featured, sort_order, colors, sizes, sizes_enabled, threads, placements, logos, addons, image_data")
         // This tab manages the general catalog only -- preorder-campaign
         // products (sale_id set) stay in the separate Sales admin panel,
         // even under "All stores", so they can't be edited/hidden from
@@ -139,6 +139,7 @@ exports.handler = async (event) => {
         category: body.category || null,
         hidden: !!body.hidden,
         sold_out: !!body.soldOut,
+        featured: !!body.featured,
         name: name.trim(),
         price_cents: Math.round(priceCents),
         colors: cleanOptionList(body.colors),
@@ -169,6 +170,7 @@ exports.handler = async (event) => {
     if (body.portalCode !== undefined) updates.portal_code = body.portalCode ? body.portalCode.trim().toUpperCase() : null;
     if (body.hidden !== undefined) updates.hidden = !!body.hidden;
     if (body.soldOut !== undefined) updates.sold_out = !!body.soldOut;
+    if (body.featured !== undefined) updates.featured = !!body.featured;
     if (body.colors !== undefined) updates.colors = cleanOptionList(body.colors);
     if (body.sizes !== undefined) updates.sizes = cleanOptionList(body.sizes);
     if (body.sizesEnabled !== undefined) updates.sizes_enabled = !!body.sizesEnabled;
