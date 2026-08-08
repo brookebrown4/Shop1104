@@ -8,15 +8,24 @@ const RESOURCE_LABELS = [
 // The uploaded PDF is stored as a data: URL. Browsers block top-level
 // navigation straight to a data: URL from a target="_blank" link (a
 // phishing-prevention restriction), which is why clicking the link did
-// nothing. Converting it to a blob: URL at click time isn't restricted the
-// same way and reliably opens in the browser's native PDF viewer.
+// nothing. Converting it to a blob: URL isn't restricted the same way --
+// but the conversion is async, and a window.open() called after an await
+// no longer counts as a direct user gesture, so popup blockers silently
+// eat it too. Opening the blank tab synchronously *before* the await, then
+// navigating it once the blob is ready, keeps it inside the user gesture.
 async function previewPdf(dataUrl) {
-  const res = await fetch(dataUrl);
-  const blob = await res.blob();
-  const blobUrl = URL.createObjectURL(blob);
-  window.open(blobUrl, "_blank", "noopener,noreferrer");
-  // Revoke well after the new tab has had time to load it.
-  setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+  const tab = window.open("", "_blank", "noopener,noreferrer");
+  try {
+    const res = await fetch(dataUrl);
+    const blob = await res.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    if (tab) {
+      tab.location.href = blobUrl;
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+    }
+  } catch {
+    if (tab) tab.close();
+  }
 }
 
 export default function CatalogPage({ content }) {
