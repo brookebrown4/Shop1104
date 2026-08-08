@@ -90,6 +90,42 @@ export default function ClientPortal({ portal, setPortal, onOpenProduct, cart })
           </button>
         </form>
       </div>
+
+      {/* Illustrative only -- not a real store, not clickable into anything.
+          Gives a prospective business client a sense of what their own
+          portal would look like once set up. */}
+      <div style={{ marginTop: 50 }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+          <h2 style={{ margin: 0 }}>What your store could look like</h2>
+          <span className="tag tag-neutral">Example preview</span>
+        </div>
+        <p className="text-muted" style={{ marginTop: 6 }}>
+          A mockup of a sample team store — yours would carry your own logo, gear, and pricing.
+        </p>
+        <div className="card" style={{ marginTop: 20, background: "var(--color-surface)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+            <div className="card-title" style={{ fontSize: 20 }}>Acme Construction — Team Store</div>
+            <span className="tag tag-neutral">Sample</span>
+          </div>
+          <p className="text-muted" style={{ margin: 0 }}>Curated gear and pricing for your team.</p>
+          <div className="grid-3" style={{ marginTop: 15 }}>
+            {[
+              { name: "Team Polo", price: "32.00" },
+              { name: "Staff Cap", price: "22.00" },
+              { name: "Company Hoodie", price: "46.00" },
+            ].map((p) => (
+              <div key={p.name} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <div className="halftone" style={{ width: "100%", aspectRatio: "1/1" }}>{p.name} photo</div>
+                <div className="card-title" style={{ fontSize: 15 }}>{p.name}</div>
+                <div className="card-meta">
+                  <span className="tag tag-accent">Customizable</span>
+                  <span>${p.price}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
     </section>
   );
 }
