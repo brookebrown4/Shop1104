@@ -5,6 +5,20 @@ const RESOURCE_LABELS = [
   { key: "designs", label: "Designs Available" },
 ];
 
+// The uploaded PDF is stored as a data: URL. Browsers block top-level
+// navigation straight to a data: URL from a target="_blank" link (a
+// phishing-prevention restriction), which is why clicking the link did
+// nothing. Converting it to a blob: URL at click time isn't restricted the
+// same way and reliably opens in the browser's native PDF viewer.
+async function previewPdf(dataUrl) {
+  const res = await fetch(dataUrl);
+  const blob = await res.blob();
+  const blobUrl = URL.createObjectURL(blob);
+  window.open(blobUrl, "_blank", "noopener,noreferrer");
+  // Revoke well after the new tab has had time to load it.
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+}
+
 export default function CatalogPage({ content }) {
   const resources = (content && content.catalogResources) || {};
   const gallery = (content && content.gallery) || [];
@@ -35,7 +49,7 @@ export default function CatalogPage({ content }) {
             <div key={r.key} className="card">
               <div className="card-title">{r.label}</div>
               {res && res.url ? (
-                <a className="btn btn-secondary" href={res.url} target="_blank" rel="noreferrer">Preview PDF</a>
+                <button type="button" className="btn btn-secondary" onClick={() => previewPdf(res.url)}>Preview PDF</button>
               ) : (
                 <p className="text-muted" style={{ fontSize: 12 }}>Not uploaded yet</p>
               )}
