@@ -1,4 +1,11 @@
+import { useState, useEffect } from "react";
+
 export default function ProductDetail({ selectedProduct, options, setOptions, addToCart, onBack, garmentColors, threadColors }) {
+  const [activeImage, setActiveImage] = useState(0);
+  // New product loaded -- always start on its first photo, not whatever
+  // thumbnail happened to be selected on the previous product.
+  useEffect(() => { setActiveImage(0); }, [selectedProduct && selectedProduct.id]);
+
   if (!selectedProduct) {
     return (
       <section className="shop-section">
@@ -21,12 +28,30 @@ export default function ProductDetail({ selectedProduct, options, setOptions, ad
     hex: c.hex || (garmentColors.find((g) => g.name === c.name) || {}).hex || "#ccc",
   }));
 
+  const images = p.images && p.images.length > 0 ? p.images : p.image ? [p.image] : [];
+  const mainImage = images[activeImage] || images[0];
+
   return (
     <section className="shop-section">
       <a href="#" onClick={(e) => { e.preventDefault(); onBack(); }}>← Back to shop</a>
       <div className="grid-2" style={{ marginTop: 20 }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <div className="halftone" style={{ width: "100%", aspectRatio: "1/1" }}>{p.image ? <img src={p.image} alt={p.name} /> : `${p.name} photo`}</div>
+          <div className="halftone" style={{ width: "100%", aspectRatio: "1/1" }}>{mainImage ? <img src={mainImage} alt={p.name} /> : `${p.name} photo`}</div>
+          {images.length > 1 && (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10 }}>
+              {images.map((img, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  className="halftone"
+                  style={{ aspectRatio: "1/1", padding: 0, border: i === activeImage ? "2px solid var(--color-accent)" : "1px solid var(--color-divider)", cursor: "pointer", background: "none" }}
+                  onClick={() => setActiveImage(i)}
+                >
+                  <img src={img} alt={`${p.name} view ${i + 1}`} />
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         <div>
           <h6 style={{ color: "var(--color-accent-700)" }}>{p.category}</h6>

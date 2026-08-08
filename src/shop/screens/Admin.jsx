@@ -120,7 +120,7 @@ export default function Admin({ content, categories, garmentColors, threadColors
 // ── Products ─────────────────────────────────────────────────────────────
 
 const emptyProduct = {
-  name: "", priceCents: "", category: "", portalCode: "", hidden: false, soldOut: false, featured: false, image: "",
+  name: "", priceCents: "", category: "", portalCode: "", hidden: false, soldOut: false, featured: false, images: [],
   sizes: {}, colors: {}, threads: [], placements: [], designs: [], addons: [],
 };
 
@@ -161,7 +161,8 @@ function ProductsTab({ adminCode, categories, garmentColors, threadColors, place
     setEditingId(p.id);
     setForm({
       name: p.name, priceCents: (p.price_cents / 100).toString(), category: p.category || "", portalCode: p.portal_code || "",
-      hidden: !!p.hidden, soldOut: !!p.sold_out, featured: !!p.featured, image: p.image_data || "",
+      hidden: !!p.hidden, soldOut: !!p.sold_out, featured: !!p.featured,
+      images: p.images && p.images.length ? p.images : (p.image_data ? [p.image_data] : []),
       sizes: sizesObj, colors: colorsObj,
       threads: p.threads || [], placements: p.placements || [],
       designs: (p.logos || []).map((d) => ({ name: d.name, extraCost: (d.extraCost || 0) / 100 })),
@@ -190,7 +191,7 @@ function ProductsTab({ adminCode, categories, garmentColors, threadColors, place
         hidden: form.hidden,
         soldOut: form.soldOut,
         featured: form.featured,
-        image: form.image || null,
+        images: form.images || [],
         sizes: Object.entries(form.sizes).map(([name, cost]) => ({ name, extraCost: Math.round((cost || 0) * 100) })),
         colors: Object.entries(form.colors).map(([name, cost]) => ({ name, extraCost: Math.round((cost || 0) * 100), hex: (garmentColors.find((c) => c.name === name) || {}).hex })),
         threads: form.threads,
@@ -237,24 +238,32 @@ function ProductsTab({ adminCode, categories, garmentColors, threadColors, place
           <div className="field"><label>Price</label><input className="input" type="number" min="0" step="0.01" value={form.priceCents} onChange={(e) => set("priceCents", e.target.value)} placeholder="24.00" required /></div>
         </div>
         <div className="field">
-          <label>Photo</label>
-          <div style={{ display: "flex", alignItems: "center", gap: 15 }}>
-            {form.image && <div className="halftone" style={{ width: 70, height: 70, flexShrink: 0 }}><img src={form.image} alt="" /></div>}
-            <input
-              className="input"
-              type="file"
-              accept="image/*"
-              disabled={imageBusy}
-              onChange={async (e) => {
-                const file = e.target.files[0];
-                e.target.value = "";
-                if (!file) return;
-                setImageBusy(true);
-                try { set("image", await resizeImageToDataUrl(file)); } finally { setImageBusy(false); }
-              }}
-            />
-            {imageBusy && <span className="text-muted" style={{ fontSize: 12 }}>Processing…</span>}
-            {form.image && <a href="#" onClick={(e) => { e.preventDefault(); set("image", ""); }}>Remove</a>}
+          <label>Photos (up to 4 — first one is used as the card thumbnail)</label>
+          <div style={{ display: "flex", gap: 15, flexWrap: "wrap" }}>
+            {form.images.map((img, i) => (
+              <div key={i} style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "center" }}>
+                <div className="halftone" style={{ width: 70, height: 70 }}><img src={img} alt="" /></div>
+                <a href="#" style={{ fontSize: 12 }} onClick={(e) => { e.preventDefault(); set("images", form.images.filter((_, idx) => idx !== i)); }}>Remove</a>
+              </div>
+            ))}
+            {form.images.length < 4 && (
+              <label className="input" style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 70, height: 70, borderStyle: "dashed", cursor: imageBusy ? "default" : "pointer", padding: 0, fontSize: 12, textAlign: "center" }}>
+                {imageBusy ? "…" : "+ Add"}
+                <input
+                  type="file"
+                  accept="image/*"
+                  disabled={imageBusy}
+                  style={{ display: "none" }}
+                  onChange={async (e) => {
+                    const file = e.target.files[0];
+                    e.target.value = "";
+                    if (!file) return;
+                    setImageBusy(true);
+                    try { set("images", [...form.images, await resizeImageToDataUrl(file)]); } finally { setImageBusy(false); }
+                  }}
+                />
+              </label>
+            )}
           </div>
         </div>
         <div className="field">

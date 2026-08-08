@@ -11,7 +11,8 @@
 //   - colors: [{ name, extraCost, hex }] -- if empty, customer can type any color
 //   - logos:  [{ name, extraCost }]      -- if empty, no logo/design choice is shown
 //   - customTextFields: [{ label }]      -- as many labeled text boxes as this item needs
-//   - image: a base64 photo (optional)
+//   - images: up to 4 base64 photos (optional) -- images[0] is also mirrored
+//     into the legacy image_data column for anything still reading that
 // extraCost is added on top of the base price when a customer picks that option.
 //
 // GET  ?saleId=...  -> list products for a sale
@@ -50,6 +51,11 @@ function cleanNameList(list) {
   return list.filter((n) => typeof n === "string" && n.trim()).map((n) => n.trim());
 }
 
+function cleanImages(list) {
+  if (!Array.isArray(list)) return [];
+  return list.filter((s) => typeof s === "string" && s.trim()).slice(0, 4);
+}
+
 function cleanAddons(list) {
   if (!Array.isArray(list)) return [];
   return list
@@ -75,7 +81,7 @@ exports.handler = async (event) => {
     if ("store" in q) {
       let query = supabase
         .from("products")
-        .select("id, name, price_cents, category, portal_code, hidden, sold_out, featured, sort_order, colors, sizes, sizes_enabled, threads, placements, logos, addons, image_data")
+        .select("id, name, price_cents, category, portal_code, hidden, sold_out, featured, sort_order, colors, sizes, sizes_enabled, threads, placements, logos, addons, image_data, images")
         // This tab manages the general catalog only -- preorder-campaign
         // products (sale_id set) stay in the separate Sales admin panel,
         // even under "All stores", so they can't be edited/hidden from
@@ -149,7 +155,8 @@ exports.handler = async (event) => {
         placements: cleanNameList(body.placements),
         addons: cleanAddons(body.addons),
         logos: cleanOptionList(body.logos),
-        image_data: body.image || null,
+        images: cleanImages(body.images),
+        image_data: (cleanImages(body.images)[0]) || null,
         custom_text_fields: cleanTextFields(body.customTextFields),
       })
       .select()
@@ -178,7 +185,11 @@ exports.handler = async (event) => {
     if (body.placements !== undefined) updates.placements = cleanNameList(body.placements);
     if (body.addons !== undefined) updates.addons = cleanAddons(body.addons);
     if (body.logos !== undefined) updates.logos = cleanOptionList(body.logos);
-    if (body.image !== undefined) updates.image_data = body.image || null;
+    if (body.images !== undefined) {
+      const imgs = cleanImages(body.images);
+      updates.images = imgs;
+      updates.image_data = imgs[0] || null;
+    }
     if (body.customTextFields !== undefined) updates.custom_text_fields = cleanTextFields(body.customTextFields);
 
     const { data, error } = await supabase

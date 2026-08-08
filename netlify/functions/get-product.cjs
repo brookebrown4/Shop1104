@@ -18,7 +18,7 @@ exports.handler = async (event) => {
 
   const { data: p, error } = await supabase
     .from("products")
-    .select("id, name, price_cents, category, portal_code, colors, sizes, sizes_enabled, threads, placements, logos, addons, image_data, hidden, sold_out")
+    .select("id, name, price_cents, category, portal_code, colors, sizes, sizes_enabled, threads, placements, logos, addons, image_data, images, hidden, sold_out")
     .eq("id", id)
     .eq("hidden", false)
     .is("sale_id", null)
@@ -47,7 +47,8 @@ exports.handler = async (event) => {
         placements: p.placements || [],
         designs: p.logos || [],
         addons: p.addons || [],
-        image: p.image_data || "",
+        images: p.images && p.images.length > 0 ? p.images : (p.image_data ? [p.image_data] : []),
+        image: p.image_data || (p.images && p.images[0]) || "",
         soldOut: !!p.sold_out,
       },
     }),

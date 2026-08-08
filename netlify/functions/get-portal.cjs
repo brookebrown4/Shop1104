@@ -54,7 +54,7 @@ exports.handler = async (event) => {
 
   const { data: products, error: prodErr } = await supabase
     .from("products")
-    .select("id, name, price_cents, category, colors, sizes, sizes_enabled, threads, placements, logos, addons, image_data, hidden, sold_out, sort_order")
+    .select("id, name, price_cents, category, colors, sizes, sizes_enabled, threads, placements, logos, addons, image_data, images, hidden, sold_out, sort_order")
     .eq("portal_code", code)
     .eq("hidden", false)
     .is("sale_id", null)
@@ -77,7 +77,8 @@ exports.handler = async (event) => {
     placements: p.placements || [],
     designs: p.logos || [],
     addons: p.addons || [],
-    image: p.image_data || "",
+    images: p.images && p.images.length > 0 ? p.images : (p.image_data ? [p.image_data] : []),
+    image: p.image_data || (p.images && p.images[0]) || "",
     soldOut: !!p.sold_out,
   }));
 
