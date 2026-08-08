@@ -1,5 +1,3 @@
-import { useState } from "react";
-
 const RESOURCE_LABELS = [
   { key: "threadColors", label: "Thread Colors" },
   { key: "fontOptions", label: "Font Options" },
@@ -7,30 +5,23 @@ const RESOURCE_LABELS = [
   { key: "designs", label: "Designs Available" },
 ];
 
+// Both a new-tab preview (window.open, blocked by the popup blocker even
+// from a direct click) and an in-page iframe (Chrome's PDF viewer renders
+// a solid black box instead of the page) turned out to be unreliable here.
+// Navigating the current tab straight to the blob: URL is the exact same
+// code path Chrome uses for any ordinary link to a .pdf file, so it can't
+// have either of those problems -- the browser's real, full PDF viewer
+// takes over the tab. The user goes back to return to the site.
+async function previewPdf(dataUrl) {
+  const res = await fetch(dataUrl);
+  const blob = await res.blob();
+  const blobUrl = URL.createObjectURL(blob);
+  window.location.href = blobUrl;
+}
+
 export default function CatalogPage({ content }) {
   const resources = (content && content.catalogResources) || {};
   const gallery = (content && content.gallery) || [];
-  const [preview, setPreview] = useState(null); // { label, blobUrl } | { label, loading: true }
-
-  // Chrome's built-in PDF viewer doesn't reliably render a data: URI given
-  // straight to an <iframe> src (confirmed -- shows a black box instead of
-  // the PDF). Converting it to a blob: URL first renders correctly.
-  const openPreview = async (label, dataUrl) => {
-    setPreview({ label, loading: true });
-    try {
-      const res = await fetch(dataUrl);
-      const blob = await res.blob();
-      const blobUrl = URL.createObjectURL(blob);
-      setPreview({ label, blobUrl });
-    } catch {
-      setPreview({ label, error: true });
-    }
-  };
-
-  const closePreview = () => {
-    if (preview && preview.blobUrl) URL.revokeObjectURL(preview.blobUrl);
-    setPreview(null);
-  };
 
   return (
     <section className="shop-section">
@@ -58,7 +49,7 @@ export default function CatalogPage({ content }) {
             <div key={r.key} className="card">
               <div className="card-title">{r.label}</div>
               {res && res.url ? (
-                <button type="button" className="btn btn-secondary" onClick={() => openPreview(r.label, res.url)}>Preview PDF</button>
+                <button type="button" className="btn btn-secondary" onClick={() => previewPdf(res.url)}>Preview PDF</button>
               ) : (
                 <p className="text-muted" style={{ fontSize: 12 }}>Not uploaded yet</p>
               )}
@@ -66,26 +57,6 @@ export default function CatalogPage({ content }) {
           );
         })}
       </div>
-
-      {preview && (
-        // Rendered inline (an <iframe> on this same page) rather than opened
-        // as a new tab/window -- browser popup blockers can silently block
-        // window.open() even from a direct click, and there's no
-        // popup-blocker equivalent for an iframe already in the page.
-        <div className="dialog-backdrop" onClick={closePreview}>
-          <div className="dialog" style={{ maxWidth: 900, width: "92vw", height: "88vh" }} onClick={(e) => e.stopPropagation()}>
-            <div className="dialog-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span>{preview.label}</span>
-              <button type="button" className="btn btn-secondary" onClick={closePreview}>Close</button>
-            </div>
-            {preview.loading && <p className="text-muted">Loading…</p>}
-            {preview.error && <p style={{ color: "var(--color-accent-2-700)" }}>Could not load this PDF.</p>}
-            {preview.blobUrl && (
-              <iframe title={preview.label} src={preview.blobUrl} style={{ flex: 1, width: "100%", border: "none", borderRadius: "var(--radius-md)" }} />
-            )}
-          </div>
-        </div>
-      )}
     </section>
   );
 }
