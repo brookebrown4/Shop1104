@@ -436,8 +436,11 @@ function RequestsTab({ adminCode }) {
 function portalStatus(cp) {
   if (cp.hidden) return { label: "Hidden", tone: "tag-neutral" };
   if (!cp.lockDate) return { label: "Open", tone: "tag-accent" };
-  const isClosed = new Date(cp.lockDate + "T00:00:00") <= new Date();
-  return isClosed ? { label: "Closed", tone: "tag-neutral" } : { label: `Closes ${cp.lockDate}`, tone: "tag-accent" };
+  // lockDate is a full timestamp (column is timestamptz), not a plain
+  // "YYYY-MM-DD" -- compare it directly rather than re-appending a time
+  // component onto what's already a full timestamp.
+  const isClosed = new Date(cp.lockDate) <= new Date();
+  return isClosed ? { label: "Closed", tone: "tag-neutral" } : { label: `Closes ${cp.lockDate.slice(0, 10)}`, tone: "tag-accent" };
 }
 
 function PortalsTab({ adminCode }) {
@@ -487,7 +490,7 @@ function PortalsTab({ adminCode }) {
         <tbody>
           {portals.map((cp) => {
             const status = portalStatus(cp);
-            const draft = dateDrafts[cp.code] ?? (cp.lockDate || "");
+            const draft = dateDrafts[cp.code] ?? (cp.lockDate ? cp.lockDate.slice(0, 10) : "");
             return (
               <tr key={cp.code}>
                 <td>{cp.name}</td>

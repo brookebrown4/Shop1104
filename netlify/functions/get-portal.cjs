@@ -44,8 +44,12 @@ exports.handler = async (event) => {
   }
   // A closed-but-visible portal tells the customer when it closed, rather
   // than silently pretending not to exist (that's what "hidden" is for).
-  if (portal.lock_date && new Date(portal.lock_date + "T00:00:00") <= new Date()) {
-    return { statusCode: 200, body: JSON.stringify({ portal: null, products: [], error: `This store closed on ${portal.lock_date}.` }) };
+  // lock_date comes back as a full timestamp (column is timestamptz, not
+  // date), not a plain "YYYY-MM-DD" -- appending "T00:00:00" to that (as
+  // this used to) produces an invalid Date, which silently never compares
+  // <= anything, so a closed portal was never actually being blocked.
+  if (portal.lock_date && new Date(portal.lock_date) <= new Date()) {
+    return { statusCode: 200, body: JSON.stringify({ portal: null, products: [], error: `This store closed on ${portal.lock_date.slice(0, 10)}.` }) };
   }
 
   const { data: products, error: prodErr } = await supabase
