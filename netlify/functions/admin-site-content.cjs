@@ -23,7 +23,7 @@ function isAuthorized(event) {
   return code && process.env.ADMIN_ACCESS_CODE && code === process.env.ADMIN_ACCESS_CODE;
 }
 
-const SINGLETON_KEYS = new Set(["settings", "hero", "about", "shippingSettings", "catalogResources"]);
+const SINGLETON_KEYS = new Set(["settings", "hero", "about", "shippingSettings", "catalogResources", "portalPreview"]);
 
 // Maps each list resource to its table + how to translate the frontend's
 // camelCase fields into the database's snake_case columns.

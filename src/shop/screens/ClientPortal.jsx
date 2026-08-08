@@ -1,8 +1,18 @@
 import { useState } from "react";
 import * as api from "../api";
 
-export default function ClientPortal({ portal, setPortal, onOpenProduct, cart }) {
+const DEFAULT_PREVIEW = {
+  businessName: "Acme Construction",
+  products: [
+    { name: "Team Polo", price: "32.00" },
+    { name: "Staff Cap", price: "22.00" },
+    { name: "Company Hoodie", price: "46.00" },
+  ],
+};
+
+export default function ClientPortal({ portal, setPortal, onOpenProduct, cart, portalPreview }) {
   const [submitting, setSubmitting] = useState(false);
+  const preview = portalPreview && portalPreview.businessName ? portalPreview : DEFAULT_PREVIEW;
 
   // A single order can only be priced against one product set -- Main Shop
   // or one portal, never mixed (see submit-general-order.cjs). Switching
@@ -104,16 +114,12 @@ export default function ClientPortal({ portal, setPortal, onOpenProduct, cart })
         </p>
         <div className="card" style={{ marginTop: 20, background: "var(--color-surface)" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-            <div className="card-title" style={{ fontSize: 20 }}>Acme Construction — Team Store</div>
+            <div className="card-title" style={{ fontSize: 20 }}>{preview.businessName} — Team Store</div>
             <span className="tag tag-neutral">Sample</span>
           </div>
           <p className="text-muted" style={{ margin: 0 }}>Curated gear and pricing for your team.</p>
           <div className="grid-3" style={{ marginTop: 15 }}>
-            {[
-              { name: "Team Polo", price: "32.00" },
-              { name: "Staff Cap", price: "22.00" },
-              { name: "Company Hoodie", price: "46.00" },
-            ].map((p) => (
+            {preview.products.map((p) => (
               <div key={p.name} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 <div className="halftone" style={{ width: "100%", aspectRatio: "1/1" }}>{p.name} photo</div>
                 <div className="card-title" style={{ fontSize: 15 }}>{p.name}</div>

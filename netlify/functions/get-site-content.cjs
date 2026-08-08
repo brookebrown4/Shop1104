@@ -106,6 +106,14 @@ exports.handler = async (event) => {
         reviews: mapReviews(reviews),
         shippingSettings: contentMap.shippingSettings || { base: 0, perItem: 0, freeThreshold: 0 },
         catalogResources: contentMap.catalogResources || {},
+        portalPreview: contentMap.portalPreview || {
+          businessName: "Acme Construction",
+          products: [
+            { name: "Team Polo", price: "32.00" },
+            { name: "Staff Cap", price: "22.00" },
+            { name: "Company Hoodie", price: "46.00" },
+          ],
+        },
       }),
     };
   } catch (err) {

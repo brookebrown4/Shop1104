@@ -106,7 +106,7 @@ export default function Admin({ content, categories, garmentColors, threadColors
       <div>
         {tab === "Products" && <ProductsTab adminCode={adminCode} categories={categories} garmentColors={garmentColors} threadColors={threadColors} placementList={placementList} />}
         {tab === "Requests" && <RequestsTab adminCode={adminCode} />}
-        {tab === "Portals" && <PortalsTab adminCode={adminCode} />}
+        {tab === "Portals" && <PortalsTab adminCode={adminCode} content={content} />}
         {tab === "Orders" && <OrdersTab adminCode={adminCode} />}
         {tab === "Catalog" && <CatalogTab adminCode={adminCode} content={content} />}
         {tab === "Reviews" && <ReviewsTab adminCode={adminCode} content={content} />}
@@ -443,10 +443,31 @@ function portalStatus(cp) {
   return isClosed ? { label: "Closed", tone: "tag-neutral" } : { label: `Closes ${cp.lockDate.slice(0, 10)}`, tone: "tag-accent" };
 }
 
-function PortalsTab({ adminCode }) {
+const DEFAULT_PORTAL_PREVIEW = {
+  businessName: "Acme Construction",
+  products: [
+    { name: "Team Polo", price: "32.00" },
+    { name: "Staff Cap", price: "22.00" },
+    { name: "Company Hoodie", price: "46.00" },
+  ],
+};
+
+function PortalsTab({ adminCode, content }) {
   const [portals, setPortals] = useState([]);
   const [passwordEnabled, setPasswordEnabled] = useState(false);
   const [dateDrafts, setDateDrafts] = useState({});
+  const [preview, setPreview] = useState(() => (content && content.portalPreview) || DEFAULT_PORTAL_PREVIEW);
+  const [previewSaved, setPreviewSaved] = useState(false);
+
+  const savePreview = async (e) => {
+    e.preventDefault();
+    await api.adminSiteContent(adminCode, { resource: "portalPreview", action: "update", value: preview });
+    setPreviewSaved(true);
+  };
+  const setPreviewProduct = (i, field, val) => {
+    setPreview((p) => ({ ...p, products: p.products.map((prod, idx) => (idx === i ? { ...prod, [field]: val } : prod)) }));
+    setPreviewSaved(false);
+  };
   const load = useCallback(() => { api.adminListPortals(adminCode).then((r) => setPortals(r.portals || [])).catch(() => {}); }, [adminCode]);
   useEffect(() => { load(); }, [load]);
 
@@ -526,6 +547,25 @@ function PortalsTab({ adminCode }) {
         </tbody>
       </table>
       <p className="text-muted" style={{ marginTop: 15 }}>Add and manage each portal's products from the Products tab — pick the store there when adding a product.</p>
+
+      <h2 style={{ marginTop: 40 }}>Portal preview example</h2>
+      <p className="text-muted">Edits the sample "what your store could look like" mockup shown at the bottom of the public Client Portal page.</p>
+      <form onSubmit={savePreview} style={{ display: "flex", flexDirection: "column", gap: 15, maxWidth: 480, marginTop: 15 }}>
+        <div className="field">
+          <label>Example business name</label>
+          <input className="input" value={preview.businessName} onChange={(e) => { setPreview((p) => ({ ...p, businessName: e.target.value })); setPreviewSaved(false); }} />
+        </div>
+        {preview.products.map((p, i) => (
+          <div key={i} style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 10 }}>
+            <div className="field"><label>Product {i + 1} name</label><input className="input" value={p.name} onChange={(e) => setPreviewProduct(i, "name", e.target.value)} /></div>
+            <div className="field"><label>Price ($)</label><input className="input" value={p.price} onChange={(e) => setPreviewProduct(i, "price", e.target.value)} /></div>
+          </div>
+        ))}
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <button className="btn btn-primary" type="submit" style={{ alignSelf: "flex-start" }}>Save</button>
+          {previewSaved && <span className="tag tag-accent">Saved</span>}
+        </div>
+      </form>
     </div>
   );
 }

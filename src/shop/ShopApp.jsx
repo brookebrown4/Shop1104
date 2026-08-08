@@ -117,6 +117,7 @@ export default function ShopApp({ page, nav, initialContent }) {
   const placements = (content && content.placements) || [];
   const reviews = (content && content.reviews) || [];
   const shippingSettings = (content && content.shippingSettings) || { base: 0, perItem: 0, freeThreshold: 0 };
+  const portalPreview = content && content.portalPreview;
 
   const addToCart = () => {
     if (!selectedProduct) return;
@@ -178,6 +179,7 @@ export default function ShopApp({ page, nav, initialContent }) {
     shippingSettings,
     portal,
     setPortal,
+    portalPreview,
     confirmSessionId,
   };
 
