@@ -963,6 +963,7 @@ function ColorsTab({ adminCode, content, categories }) {
     e.target.reset();
     reload();
   };
+  const removeCategory = async (id) => { await api.adminSiteContent(adminCode, { resource: "categories", action: "delete", id }); reload(); };
   const toggleCategoryColor = async (cat, colorName) => {
     const allowed = cat.allowedColors.includes(colorName) ? cat.allowedColors.filter((n) => n !== colorName) : [...cat.allowedColors, colorName];
     await api.adminSiteContent(adminCode, { resource: "categories", action: "update", id: cat.id, fields: { name: cat.name, allowedColors: allowed } });
@@ -980,7 +981,11 @@ function ColorsTab({ adminCode, content, categories }) {
         <button className="btn btn-secondary" type="submit">Add</button>
       </form>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
-        {cats.map((c) => <span key={c.id} className="tag tag-neutral">{c.name}</span>)}
+        {cats.map((c) => (
+          <span key={c.id} className="tag tag-neutral">
+            {c.name} <a href="#" onClick={(e) => { e.preventDefault(); removeCategory(c.id); }} style={{ marginLeft: 4 }}>×</a>
+          </span>
+        ))}
       </div>
 
       <h3 style={{ marginTop: 30 }}>Garment colors</h3>
