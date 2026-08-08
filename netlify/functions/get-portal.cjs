@@ -25,7 +25,7 @@ exports.handler = async (event) => {
 
   const { data: portal, error: portalErr } = await supabase
     .from("client_portals")
-    .select("code, name, lock_date, stripe_link, password, password_enabled")
+    .select("code, name, lock_date, stripe_link, password, password_enabled, hidden")
     .eq("code", code)
     .maybeSingle();
 
@@ -33,17 +33,19 @@ exports.handler = async (event) => {
     console.error("Supabase error (get-portal):", portalErr);
     return { statusCode: 500, body: JSON.stringify({ error: "Could not look up portal." }) };
   }
-  if (!portal) {
+  // A hidden portal responds exactly like a code that never existed --
+  // deliberately not "closed", so it can't be distinguished/enumerated
+  // from a typo'd code.
+  if (!portal || portal.hidden) {
     return { statusCode: 200, body: JSON.stringify({ portal: null, products: [], error: "No store found for that code." }) };
   }
   if (portal.password_enabled && password !== portal.password) {
     return { statusCode: 200, body: JSON.stringify({ portal: null, products: [], error: "Incorrect password." }) };
   }
-  // lock_date was previously stored but never actually enforced -- a
-  // portal past its close date (or manually closed, which just sets this
-  // to today) would still let customers log in and order.
+  // A closed-but-visible portal tells the customer when it closed, rather
+  // than silently pretending not to exist (that's what "hidden" is for).
   if (portal.lock_date && new Date(portal.lock_date + "T00:00:00") <= new Date()) {
-    return { statusCode: 200, body: JSON.stringify({ portal: null, products: [], error: "This store is currently closed." }) };
+    return { statusCode: 200, body: JSON.stringify({ portal: null, products: [], error: `This store closed on ${portal.lock_date}.` }) };
   }
 
   const { data: products, error: prodErr } = await supabase

@@ -429,12 +429,15 @@ function RequestsTab({ adminCode }) {
 
 // ── Portals ──────────────────────────────────────────────────────────────
 
-// A portal counts as closed once lock_date is today or earlier -- "Close
-// shop now" just sets it to today rather than needing a separate flag.
-function portalStatus(lockDate) {
-  if (!lockDate) return { label: "Open", closed: false };
-  const isClosed = new Date(lockDate + "T00:00:00") <= new Date();
-  return isClosed ? { label: "Closed", closed: true } : { label: `Closes ${lockDate}`, closed: false };
+// "Closed" (past lock_date) and "hidden" are independent: a closed-but-
+// visible portal tells customers when it closed; a hidden portal's access
+// code stops working entirely, indistinguishable from one that never
+// existed. "Close shop now" just sets lock_date to today.
+function portalStatus(cp) {
+  if (cp.hidden) return { label: "Hidden", tone: "tag-neutral" };
+  if (!cp.lockDate) return { label: "Open", tone: "tag-accent" };
+  const isClosed = new Date(cp.lockDate + "T00:00:00") <= new Date();
+  return isClosed ? { label: "Closed", tone: "tag-neutral" } : { label: `Closes ${cp.lockDate}`, tone: "tag-accent" };
 }
 
 function PortalsTab({ adminCode }) {
@@ -460,8 +463,8 @@ function PortalsTab({ adminCode }) {
   };
 
   const todayStr = () => new Date().toISOString().slice(0, 10);
-  const setLockDate = async (code, lockDate) => {
-    await api.adminPortals(adminCode, { action: "updatePortal", code, fields: { lockDate: lockDate || null } });
+  const updatePortal = async (code, fields) => {
+    await api.adminPortals(adminCode, { action: "updatePortal", code, fields });
     load();
   };
   const removePortal = async (code) => {
@@ -483,14 +486,14 @@ function PortalsTab({ adminCode }) {
         <thead><tr><th>Name</th><th>Access code</th><th>Password protected</th><th>Status</th><th>Closing date</th><th></th></tr></thead>
         <tbody>
           {portals.map((cp) => {
-            const status = portalStatus(cp.lockDate);
+            const status = portalStatus(cp);
             const draft = dateDrafts[cp.code] ?? (cp.lockDate || "");
             return (
               <tr key={cp.code}>
                 <td>{cp.name}</td>
                 <td>{cp.code}</td>
                 <td>{cp.passwordEnabled ? "Yes" : "No"}</td>
-                <td><span className={`tag ${status.closed ? "tag-neutral" : "tag-accent"}`}>{status.label}</span></td>
+                <td><span className={`tag ${status.tone}`}>{status.label}</span></td>
                 <td>
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                     <input
@@ -500,16 +503,19 @@ function PortalsTab({ adminCode }) {
                       value={draft}
                       onChange={(e) => setDateDrafts((d) => ({ ...d, [cp.code]: e.target.value }))}
                     />
-                    <button type="button" className="btn btn-secondary" style={{ padding: "4px 10px", fontSize: 12 }} onClick={() => setLockDate(cp.code, draft)}>Save</button>
+                    <button type="button" className="btn btn-secondary" style={{ padding: "4px 10px", fontSize: 12 }} onClick={() => updatePortal(cp.code, { lockDate: draft || null })}>Save</button>
                   </div>
                 </td>
                 <td style={{ whiteSpace: "nowrap" }}>
-                  {status.closed ? (
-                    <a href="#" onClick={(e) => { e.preventDefault(); setDateDrafts((d) => ({ ...d, [cp.code]: "" })); setLockDate(cp.code, ""); }}>Reopen</a>
-                  ) : (
-                    <a href="#" onClick={(e) => { e.preventDefault(); setDateDrafts((d) => ({ ...d, [cp.code]: todayStr() })); setLockDate(cp.code, todayStr()); }}>Close shop now</a>
-                  )}
-                  {" "}<DeleteLink onConfirm={() => removePortal(cp.code)} />
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    {cp.lockDate ? (
+                      <a href="#" onClick={(e) => { e.preventDefault(); setDateDrafts((d) => ({ ...d, [cp.code]: "" })); updatePortal(cp.code, { lockDate: null }); }}>Reopen</a>
+                    ) : (
+                      <a href="#" onClick={(e) => { e.preventDefault(); setDateDrafts((d) => ({ ...d, [cp.code]: todayStr() })); updatePortal(cp.code, { lockDate: todayStr() }); }}>Close shop now</a>
+                    )}
+                    <a href="#" onClick={(e) => { e.preventDefault(); updatePortal(cp.code, { hidden: !cp.hidden }); }}>{cp.hidden ? "Unhide" : "Hide"}</a>
+                    <DeleteLink onConfirm={() => removePortal(cp.code)} />
+                  </div>
                 </td>
               </tr>
             );

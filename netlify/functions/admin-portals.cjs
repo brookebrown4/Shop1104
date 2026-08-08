@@ -5,7 +5,7 @@
 //
 // GET                                    -> list all portals (with products)
 // POST { action: "createPortal", name }
-// POST { action: "updatePortal", code, fields: { name, lockDate, stripeLink } }
+// POST { action: "updatePortal", code, fields: { name, lockDate, stripeLink, hidden } }
 // POST { action: "deletePortal", code }
 // POST { action: "createProduct", portalCode, fields: {...} }
 // POST { action: "updateProduct", id, fields: {...} }
@@ -62,6 +62,7 @@ exports.handler = async (event) => {
       lockDate: p.lock_date,
       stripeLink: p.stripe_link,
       passwordEnabled: !!p.password_enabled,
+      hidden: !!p.hidden,
       products: (products || [])
         .filter((prod) => prod.portal_code === p.code)
         .map((prod) => ({
@@ -130,6 +131,7 @@ exports.handler = async (event) => {
     if ("stripeLink" in f) updates.stripe_link = f.stripeLink || null;
     if ("passwordEnabled" in f) updates.password_enabled = !!f.passwordEnabled;
     if ("password" in f) updates.password = f.password || null;
+    if ("hidden" in f) updates.hidden = !!f.hidden;
     const { data, error } = await supabase
       .from("client_portals")
       .update(updates)
