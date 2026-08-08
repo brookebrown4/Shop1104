@@ -1,5 +1,13 @@
 export default function Home({ goTo, products, categories, reviews, onSelectProduct }) {
   const featured = (products || []).slice(0, 4);
+  // Same fix as the Shop page's filter list: only show a category tile if
+  // a product is actually in it, rather than every admin-configured
+  // category (or, with none configured at all, four hardcoded placeholder
+  // names that don't correspond to anything real).
+  const categoriesWithProducts = (() => {
+    const present = new Set((products || []).map((p) => p.category).filter(Boolean));
+    return (categories || []).filter((cat) => present.has(cat.name));
+  })();
 
   return (
     <>
@@ -23,25 +31,27 @@ export default function Home({ goTo, products, categories, reviews, onSelectProd
         </div>
       </section>
 
-      <section className="shop-section">
-        <h2>Shop by category</h2>
-        <div className="grid-4" style={{ marginTop: 15 }}>
-          {(categories.length ? categories : [{ name: "Tees" }, { name: "Hoodies & Fleece" }, { name: "Hats" }, { name: "Bulk & Business" }]).map((cat) => (
-            <a
-              key={cat.id || cat.name}
-              href="#"
-              style={{ textDecoration: "none", color: "inherit", display: "flex", flexDirection: "column", gap: 10 }}
-              onClick={(e) => {
-                e.preventDefault();
-                goTo("shop");
-              }}
-            >
-              <div className="halftone" style={{ width: "100%", aspectRatio: "1/1" }}>{cat.name} photo</div>
-              <h5 style={{ margin: 0 }}>{cat.name}</h5>
-            </a>
-          ))}
-        </div>
-      </section>
+      {categoriesWithProducts.length > 0 && (
+        <section className="shop-section">
+          <h2>Shop by category</h2>
+          <div className="grid-4" style={{ marginTop: 15 }}>
+            {categoriesWithProducts.map((cat) => (
+              <a
+                key={cat.id || cat.name}
+                href="#"
+                style={{ textDecoration: "none", color: "inherit", display: "flex", flexDirection: "column", gap: 10 }}
+                onClick={(e) => {
+                  e.preventDefault();
+                  goTo("shop");
+                }}
+              >
+                <div className="halftone" style={{ width: "100%", aspectRatio: "1/1" }}>{cat.name} photo</div>
+                <h5 style={{ margin: 0 }}>{cat.name}</h5>
+              </a>
+            ))}
+          </div>
+        </section>
+      )}
 
       <section className="shop-section">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
