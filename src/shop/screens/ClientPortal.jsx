@@ -1,9 +1,13 @@
 import { useState } from "react";
 import * as api from "../api";
 
-export default function ClientPortal({ portal, setPortal, onOpenProduct }) {
+export default function ClientPortal({ portal, setPortal, onOpenProduct, cart }) {
   const [submitting, setSubmitting] = useState(false);
 
+  // A single order can only be priced against one product set -- Main Shop
+  // or one portal, never mixed (see submit-general-order.cjs). Switching
+  // context with items already in the cart would otherwise silently break
+  // checkout, so the cart resets on the way in and out of a portal.
   const handleLogin = async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
@@ -15,6 +19,7 @@ export default function ClientPortal({ portal, setPortal, onOpenProduct }) {
       if (r.error || !r.portal) {
         setPortal((p) => ({ ...p, error: r.error || "No store found for that code." }));
       } else {
+        if (cart.cart.length > 0) cart.clear();
         setPortal({ loggedIn: true, code: r.portal.code, name: r.portal.name, error: "", products: r.products });
       }
     } catch (err) {
@@ -24,13 +29,18 @@ export default function ClientPortal({ portal, setPortal, onOpenProduct }) {
     }
   };
 
+  const signOut = () => {
+    if (cart.cart.length > 0) cart.clear();
+    setPortal({ loggedIn: false, code: "", name: "", error: "" });
+  };
+
   if (portal.loggedIn) {
     const products = portal.products || [];
     return (
       <section className="shop-section">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
           <h1>{portal.name} — Team Store</h1>
-          <a href="#" onClick={(e) => { e.preventDefault(); setPortal({ loggedIn: false, code: "", name: "", error: "" }); }}>Sign out</a>
+          <a href="#" onClick={(e) => { e.preventDefault(); signOut(); }}>Sign out</a>
         </div>
         <p className="text-muted" style={{ marginTop: -4 }}>Curated gear and pricing for your team.</p>
         {products.length === 0 ? (
