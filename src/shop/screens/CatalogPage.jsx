@@ -13,8 +13,13 @@ const RESOURCE_LABELS = [
 // no longer counts as a direct user gesture, so popup blockers silently
 // eat it too. Opening the blank tab synchronously *before* the await, then
 // navigating it once the blob is ready, keeps it inside the user gesture.
+// Deliberately NOT passing "noopener" here: per spec that makes window.open
+// return null instead of a window reference, which is exactly what's
+// needed below to navigate the tab once the blob is ready. Safe to omit
+// since the tab is only ever pointed at a same-origin blob: URL we just
+// created, never at third-party content.
 async function previewPdf(dataUrl) {
-  const tab = window.open("", "_blank", "noopener,noreferrer");
+  const tab = window.open("", "_blank");
   try {
     const res = await fetch(dataUrl);
     const blob = await res.blob();
