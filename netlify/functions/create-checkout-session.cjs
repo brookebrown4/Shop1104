@@ -30,7 +30,7 @@ exports.handler = async (event) => {
 
   const { data: order, error } = await supabase
     .from("orders")
-    .select("id, customer_email, garments, status, shipping_cents")
+    .select("id, customer_email, garments, status, shipping_cents, sale_id")
     .eq("id", orderId)
     .single();
 
@@ -54,7 +54,14 @@ exports.handler = async (event) => {
     grouped.get(key).quantity += g.qty || 1;
   }
 
-  const siteUrl = process.env.URL || "http://localhost:8888";
+  // process.env.URL always resolves to the PRODUCTION domain, even when this
+  // function is running from a deploy preview or branch deploy -- using it
+  // unconditionally sends previewed/staged checkouts back to the live site
+  // instead of the environment being tested. DEPLOY_PRIME_URL is the right
+  // base URL for any non-production context; only fall back to URL in
+  // production (and to localhost when running netlify dev).
+  const siteUrl = (process.env.CONTEXT !== "production" && process.env.DEPLOY_PRIME_URL) || process.env.URL || "http://localhost:8888";
+  const cancelPath = order.sale_id ? "/preorder?cancelled=true" : "/cart?cancelled=true";
 
   const taxRatePercent = Number(process.env.TAX_RATE_PERCENT || 0);
   const feeRatePercent = Number(process.env.PROCESSING_FEE_PERCENT || 0);
@@ -115,7 +122,7 @@ exports.handler = async (event) => {
       customer_email: order.customer_email,
       line_items: lineItems,
       success_url: `${siteUrl}/order-confirmation?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${siteUrl}/preorder?cancelled=true`,
+      cancel_url: `${siteUrl}${cancelPath}`,
       metadata: { orderId },
     });
 
