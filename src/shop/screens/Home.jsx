@@ -3,7 +3,12 @@ export default function Home({ goTo, products, categories, reviews, onSelectProd
   // the first 4 in the catalog if nothing's been marked yet, so this
   // section isn't empty before anyone's had a chance to set it up.
   const explicitlyFeatured = (products || []).filter((p) => p.featured);
-  const featured = (explicitlyFeatured.length > 0 ? explicitlyFeatured : products || []).slice(0, 4);
+  const hasExplicitFeatured = explicitlyFeatured.length > 0;
+  // More than 4 featured -- show all of them in a horizontal scroll row
+  // instead of cutting off at 4. 4 or fewer (or nothing marked featured
+  // yet, using the first-4 fallback) keeps the normal grid.
+  const featured = hasExplicitFeatured ? explicitlyFeatured : (products || []).slice(0, 4);
+  const scrollFeatured = hasExplicitFeatured && featured.length > 4;
   // Same fix as the Shop page's filter list: only show a category tile if
   // a product is actually in it, rather than every admin-configured
   // category (or, with none configured at all, four hardcoded placeholder
@@ -64,6 +69,25 @@ export default function Home({ goTo, products, categories, reviews, onSelectProd
         </div>
         {featured.length === 0 ? (
           <p className="text-muted" style={{ marginTop: 15 }}>No products yet — add some from the Admin panel.</p>
+        ) : scrollFeatured ? (
+          <div style={{ display: "flex", gap: 15, marginTop: 15, overflowX: "auto", paddingBottom: 10 }}>
+            {featured.map((p) => (
+              <div
+                key={p.id}
+                className="card"
+                style={{ padding: 0, background: "transparent", gap: 10, cursor: "pointer", flex: "0 0 240px", width: 240 }}
+                onClick={() => onSelectProduct(p.id)}
+              >
+                <div className="halftone" style={{ width: "100%", aspectRatio: "1/1" }}>{p.image ? <img src={p.image} alt={p.name} /> : `${p.name} photo`}</div>
+                <div className="card-title">{p.name}</div>
+                <div className="card-meta">
+                  <span className="tag tag-accent">Customizable</span>
+                  {p.soldOut && <span className="tag tag-neutral">Sold out</span>}
+                  <span>${(p.price_cents / 100).toFixed(2)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
         ) : (
           <div className="grid-4" style={{ marginTop: 15 }}>
             {featured.map((p) => (
