@@ -45,7 +45,8 @@ exports.handler = async (event) => {
   let productQuery = supabase
     .from("products")
     .select("id, name, price_cents, colors, sizes, sizes_enabled, threads, placements, logos, addons, hidden, sold_out")
-    .in("id", productIds);
+    .in("id", productIds)
+    .is("sale_id", null);
   productQuery = portalCode ? productQuery.eq("portal_code", portalCode) : productQuery.is("portal_code", null);
 
   const { data: products, error: prodErr } = await productQuery;

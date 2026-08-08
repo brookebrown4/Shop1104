@@ -73,6 +73,11 @@ exports.handler = async (event) => {
       let query = supabase
         .from("products")
         .select("id, name, price_cents, category, portal_code, hidden, sold_out, sort_order, colors, sizes, sizes_enabled, threads, placements, logos, addons, image_data")
+        // This tab manages the general catalog only -- preorder-campaign
+        // products (sale_id set) stay in the separate Sales admin panel,
+        // even under "All stores", so they can't be edited/hidden from
+        // the wrong UI.
+        .is("sale_id", null)
         .order("sort_order", { ascending: true });
       if (q.store === "all") {
         // no filter

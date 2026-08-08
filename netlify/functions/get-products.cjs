@@ -21,6 +21,9 @@ exports.handler = async (event) => {
     .from("products")
     .select("id, name, price_cents, category, portal_code, colors, sizes, sizes_enabled, threads, placements, logos, addons, image_data, hidden, sold_out, sort_order")
     .eq("hidden", false)
+    // Preorder-campaign products (sale_id set) are a separate flow, not
+    // part of the general catalog, even though they share this table.
+    .is("sale_id", null)
     .order("sort_order", { ascending: true });
 
   query = portalCode ? query.eq("portal_code", portalCode) : query.is("portal_code", null);

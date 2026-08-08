@@ -45,6 +45,7 @@ exports.handler = async (event) => {
     .select("id, name, price_cents, category, colors, sizes, sizes_enabled, threads, placements, logos, addons, image_data, hidden, sold_out, sort_order")
     .eq("portal_code", code)
     .eq("hidden", false)
+    .is("sale_id", null)
     .order("sort_order", { ascending: true });
 
   if (prodErr) {

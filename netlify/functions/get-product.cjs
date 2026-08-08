@@ -21,6 +21,7 @@ exports.handler = async (event) => {
     .select("id, name, price_cents, category, portal_code, colors, sizes, sizes_enabled, threads, placements, logos, addons, image_data, hidden, sold_out")
     .eq("id", id)
     .eq("hidden", false)
+    .is("sale_id", null)
     .maybeSingle();
 
   if (error) {
