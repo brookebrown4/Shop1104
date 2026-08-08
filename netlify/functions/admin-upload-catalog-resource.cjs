@@ -59,7 +59,10 @@ exports.handler = async (event) => {
     .upload(path, buffer, { contentType: "application/pdf", upsert: false });
   if (uploadErr) {
     console.error("Supabase storage upload error:", uploadErr);
-    return { statusCode: 500, body: JSON.stringify({ error: "Could not upload file." }) };
+    // Surfacing the real reason (e.g. "Bucket not found" if the storage
+    // migration hasn't been run yet) instead of a generic message -- this
+    // exact failure was previously impossible to diagnose from the UI alone.
+    return { statusCode: 500, body: JSON.stringify({ error: "Could not upload file: " + (uploadErr.message || "unknown error") }) };
   }
 
   const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(path);
@@ -72,7 +75,7 @@ exports.handler = async (event) => {
     .upsert({ key: "catalogResources", value: nextValue, updated_at: new Date().toISOString() }, { onConflict: "key" });
   if (saveErr) {
     console.error("Supabase site_content upsert error:", saveErr);
-    return { statusCode: 500, body: JSON.stringify({ error: "File uploaded but could not save the link." }) };
+    return { statusCode: 500, body: JSON.stringify({ error: "File uploaded but could not save the link: " + (saveErr.message || "unknown error") }) };
   }
 
   return { statusCode: 200, body: JSON.stringify({ url: pub.publicUrl, fileName }) };
