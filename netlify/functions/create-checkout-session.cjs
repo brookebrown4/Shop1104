@@ -54,13 +54,16 @@ exports.handler = async (event) => {
     grouped.get(key).quantity += g.qty || 1;
   }
 
-  // process.env.URL always resolves to the PRODUCTION domain, even when this
-  // function is running from a deploy preview or branch deploy -- using it
-  // unconditionally sends previewed/staged checkouts back to the live site
-  // instead of the environment being tested. DEPLOY_PRIME_URL is the right
-  // base URL for any non-production context; only fall back to URL in
-  // production (and to localhost when running netlify dev).
-  const siteUrl = (process.env.CONTEXT !== "production" && process.env.DEPLOY_PRIME_URL) || process.env.URL || "http://localhost:8888";
+  // Built from the actual request the browser made, not Netlify's build-time
+  // URL/DEPLOY_PRIME_URL vars -- those aren't reliably visible to Functions
+  // at invocation time and process.env.URL always resolves to the
+  // PRODUCTION domain regardless of context, which was sending
+  // previewed/staged checkouts back to the live site after payment instead
+  // of the environment actually being tested. The Host header always
+  // matches whatever domain the request really came through.
+  const forwardedHost = event.headers["x-forwarded-host"] || event.headers.host;
+  const forwardedProto = event.headers["x-forwarded-proto"] || (forwardedHost && forwardedHost.startsWith("localhost") ? "http" : "https");
+  const siteUrl = forwardedHost ? `${forwardedProto}://${forwardedHost}` : process.env.URL || "http://localhost:8888";
   const cancelPath = order.sale_id ? "/preorder?cancelled=true" : "/cart?cancelled=true";
 
   const taxRatePercent = Number(process.env.TAX_RATE_PERCENT || 0);
