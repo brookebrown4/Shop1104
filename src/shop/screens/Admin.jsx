@@ -759,7 +759,11 @@ function CatalogTab({ adminCode, content }) {
     setError("");
     try {
       const image = await resizeImageToDataUrl(file);
-      const { item } = await api.adminSiteContent(adminCode, { resource: "gallery", action: "create", fields: { image } });
+      // label/bg/title are leftovers from the old admin UI's fuller gallery
+      // form (this table predates this rebuild) and are very likely
+      // NOT NULL columns since that UI always filled them in -- omitting
+      // them here is what's producing "Could not create item."
+      const { item } = await api.adminSiteContent(adminCode, { resource: "gallery", action: "create", fields: { image, label: "", bg: "", title: "", desc: "" } });
       setGallery((g) => [...g, { id: item.id, image: item.image_data || image }]);
     } catch (err) {
       setError(err.message || "Could not upload photo.");
