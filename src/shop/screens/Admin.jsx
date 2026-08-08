@@ -44,8 +44,11 @@ export default function Admin({ content, categories, garmentColors, threadColors
       await api.adminListProducts(code, "");
       setAdminCode(code);
       setLoginError("");
-    } catch {
-      setLoginError("Incorrect password.");
+    } catch (err) {
+      // Show the real failure instead of always assuming a bad password --
+      // a network/server error looks identical to a wrong password
+      // otherwise, which makes this impossible to debug from the outside.
+      setLoginError(err.message || "Sign-in failed.");
     }
   };
 
