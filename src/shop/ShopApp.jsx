@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import "./design-system.css";
 import { useCart } from "./cart";
 import * as api from "./api";
@@ -43,9 +43,14 @@ export default function ShopApp({ page, nav, initialContent }) {
   const [portal, setPortal] = useState({ loggedIn: false, code: "", name: "", error: "" });
   const [confirmSessionId, setConfirmSessionId] = useState(null);
   const cartState = useCart();
+  // Remembers which screen a product was opened from (shop vs. portal), so
+  // "Back to shop" on the product page returns a logged-in portal user to
+  // their portal instead of bouncing them out to the public catalog.
+  const productOrigin = useRef("shop");
 
   const goTo = useCallback(
     (nextScreen, opts) => {
+      if (nextScreen === "product") productOrigin.current = screen === "portal" ? "portal" : "shop";
       setScreen(nextScreen);
       if (URL_SCREEN[nextScreen]) nav(URL_SCREEN[nextScreen]);
       if (opts && opts.productId !== undefined) {
@@ -54,7 +59,7 @@ export default function ShopApp({ page, nav, initialContent }) {
       }
       window.scrollTo(0, 0);
     },
-    [nav]
+    [nav, screen]
   );
 
   // App.jsx already fetches get-site-content once (it gates all rendering
@@ -222,7 +227,7 @@ export default function ShopApp({ page, nav, initialContent }) {
 
         {screen === "home" && <Home {...screenProps} onSelectProduct={(id) => goTo("product", { productId: id })} />}
         {screen === "shop" && <Shop {...screenProps} onSelectProduct={(id) => goTo("product", { productId: id })} />}
-        {screen === "product" && <ProductDetail {...screenProps} onBack={() => goTo("shop")} />}
+        {screen === "product" && <ProductDetail {...screenProps} onBack={() => goTo(productOrigin.current)} />}
         {screen === "cart" && <Cart {...screenProps} onCheckout={() => goTo("checkout")} />}
         {screen === "checkout" && <Checkout {...screenProps} />}
         {screen === "confirm" && <Confirmation {...screenProps} onContinue={() => { cartState.clear(); goTo("home"); }} />}
