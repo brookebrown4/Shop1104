@@ -39,6 +39,12 @@ exports.handler = async (event) => {
   if (portal.password_enabled && password !== portal.password) {
     return { statusCode: 200, body: JSON.stringify({ portal: null, products: [], error: "Incorrect password." }) };
   }
+  // lock_date was previously stored but never actually enforced -- a
+  // portal past its close date (or manually closed, which just sets this
+  // to today) would still let customers log in and order.
+  if (portal.lock_date && new Date(portal.lock_date + "T00:00:00") <= new Date()) {
+    return { statusCode: 200, body: JSON.stringify({ portal: null, products: [], error: "This store is currently closed." }) };
+  }
 
   const { data: products, error: prodErr } = await supabase
     .from("products")

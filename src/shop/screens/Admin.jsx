@@ -429,9 +429,18 @@ function RequestsTab({ adminCode }) {
 
 // ── Portals ──────────────────────────────────────────────────────────────
 
+// A portal counts as closed once lock_date is today or earlier -- "Close
+// shop now" just sets it to today rather than needing a separate flag.
+function portalStatus(lockDate) {
+  if (!lockDate) return { label: "Open", closed: false };
+  const isClosed = new Date(lockDate + "T00:00:00") <= new Date();
+  return isClosed ? { label: "Closed", closed: true } : { label: `Closes ${lockDate}`, closed: false };
+}
+
 function PortalsTab({ adminCode }) {
   const [portals, setPortals] = useState([]);
   const [passwordEnabled, setPasswordEnabled] = useState(false);
+  const [dateDrafts, setDateDrafts] = useState({});
   const load = useCallback(() => { api.adminListPortals(adminCode).then((r) => setPortals(r.portals || [])).catch(() => {}); }, [adminCode]);
   useEffect(() => { load(); }, [load]);
 
@@ -450,6 +459,16 @@ function PortalsTab({ adminCode }) {
     load();
   };
 
+  const todayStr = () => new Date().toISOString().slice(0, 10);
+  const setLockDate = async (code, lockDate) => {
+    await api.adminPortals(adminCode, { action: "updatePortal", code, fields: { lockDate: lockDate || null } });
+    load();
+  };
+  const removePortal = async (code) => {
+    await api.adminPortals(adminCode, { action: "deletePortal", code });
+    load();
+  };
+
   return (
     <div>
       <h2>Client portals</h2>
@@ -461,8 +480,41 @@ function PortalsTab({ adminCode }) {
         <button className="btn btn-primary" type="submit" style={{ alignSelf: "flex-start" }}>Create client portal</button>
       </form>
       <table className="table">
-        <thead><tr><th>Name</th><th>Access code</th><th>Password protected</th></tr></thead>
-        <tbody>{portals.map((cp) => <tr key={cp.code}><td>{cp.name}</td><td>{cp.code}</td><td>{cp.passwordEnabled ? "Yes" : "No"}</td></tr>)}</tbody>
+        <thead><tr><th>Name</th><th>Access code</th><th>Password protected</th><th>Status</th><th>Closing date</th><th></th></tr></thead>
+        <tbody>
+          {portals.map((cp) => {
+            const status = portalStatus(cp.lockDate);
+            const draft = dateDrafts[cp.code] ?? (cp.lockDate || "");
+            return (
+              <tr key={cp.code}>
+                <td>{cp.name}</td>
+                <td>{cp.code}</td>
+                <td>{cp.passwordEnabled ? "Yes" : "No"}</td>
+                <td><span className={`tag ${status.closed ? "tag-neutral" : "tag-accent"}`}>{status.label}</span></td>
+                <td>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <input
+                      className="input"
+                      type="date"
+                      style={{ minHeight: 30, fontSize: 12, padding: "2px 6px", width: 140 }}
+                      value={draft}
+                      onChange={(e) => setDateDrafts((d) => ({ ...d, [cp.code]: e.target.value }))}
+                    />
+                    <button type="button" className="btn btn-secondary" style={{ padding: "4px 10px", fontSize: 12 }} onClick={() => setLockDate(cp.code, draft)}>Save</button>
+                  </div>
+                </td>
+                <td style={{ whiteSpace: "nowrap" }}>
+                  {status.closed ? (
+                    <a href="#" onClick={(e) => { e.preventDefault(); setDateDrafts((d) => ({ ...d, [cp.code]: "" })); setLockDate(cp.code, ""); }}>Reopen</a>
+                  ) : (
+                    <a href="#" onClick={(e) => { e.preventDefault(); setDateDrafts((d) => ({ ...d, [cp.code]: todayStr() })); setLockDate(cp.code, todayStr()); }}>Close shop now</a>
+                  )}
+                  {" "}<DeleteLink onConfirm={() => removePortal(cp.code)} />
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
       </table>
       <p className="text-muted" style={{ marginTop: 15 }}>Add and manage each portal's products from the Products tab — pick the store there when adding a product.</p>
     </div>
