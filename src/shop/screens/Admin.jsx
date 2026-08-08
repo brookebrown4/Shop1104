@@ -713,6 +713,33 @@ const RESOURCE_LABELS = [
 // Pasting a share link (Google Drive, Dropbox, etc.) sidesteps all of that
 // -- no upload path, no size limit, no bucket to set up, and Google
 // Drive's own viewer already gives a working "preview in browser" link.
+// Resizes/compresses an image client-side before converting to a data URL
+// -- keeps gallery photo uploads well under Netlify's function payload
+// limit, the same class of problem the catalog PDFs hit (those failed
+// silently at full size; this avoids ever getting there).
+function resizeImageToDataUrl(file, maxDim = 1000, quality = 0.85) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onerror = reject;
+      img.onload = () => {
+        let w = img.width, h = img.height;
+        if (w > maxDim) { h = Math.round((h * maxDim) / w); w = maxDim; }
+        if (h > maxDim) { w = Math.round((w * maxDim) / h); h = maxDim; }
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 function CatalogTab({ adminCode, content }) {
   const [resources, setResources] = useState((content && content.catalogResources) || {});
   const [drafts, setDrafts] = useState(() => {
@@ -722,6 +749,29 @@ function CatalogTab({ adminCode, content }) {
   });
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+
+  const [gallery, setGallery] = useState((content && content.gallery) || []);
+  const [galleryBusy, setGalleryBusy] = useState(false);
+
+  const uploadGalleryPhoto = async (file) => {
+    if (!file) return;
+    setGalleryBusy(true);
+    setError("");
+    try {
+      const image = await resizeImageToDataUrl(file);
+      const { item } = await api.adminSiteContent(adminCode, { resource: "gallery", action: "create", fields: { image } });
+      setGallery((g) => [...g, { id: item.id, image: item.image_data || image }]);
+    } catch (err) {
+      setError(err.message || "Could not upload photo.");
+    } finally {
+      setGalleryBusy(false);
+    }
+  };
+
+  const removeGalleryPhoto = async (id) => {
+    await api.adminSiteContent(adminCode, { resource: "gallery", action: "delete", id });
+    setGallery((g) => g.filter((item) => item.id !== id));
+  };
 
   const save = async (key) => {
     const url = drafts[key].trim();
@@ -774,6 +824,23 @@ function CatalogTab({ adminCode, content }) {
           </div>
         ))}
       </div>
+
+      <h2 style={{ marginTop: 40 }}>"Work we've produced" photos</h2>
+      <p className="text-muted">The photo grid shown on the public Catalog page. No limit on how many you add.</p>
+      <label className="input" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", minHeight: 60, width: "fit-content", padding: "0 20px", borderStyle: "dashed", cursor: "pointer", marginTop: 15 }}>
+        {galleryBusy ? "Uploading…" : "Add a photo"}
+        <input type="file" accept="image/*" style={{ display: "none" }} disabled={galleryBusy} onChange={(e) => { uploadGalleryPhoto(e.target.files[0]); e.target.value = ""; }} />
+      </label>
+      {gallery.length > 0 && (
+        <div className="grid-4" style={{ marginTop: 15, maxWidth: 700 }}>
+          {gallery.map((g) => (
+            <div key={g.id} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <div className="halftone" style={{ width: "100%", aspectRatio: "1/1" }}>{g.image && <img src={g.image} alt="" />}</div>
+              <DeleteLink label="Remove" onConfirm={() => removeGalleryPhoto(g.id)} />
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
