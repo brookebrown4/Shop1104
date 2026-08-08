@@ -613,6 +613,8 @@ const RESOURCE_LABELS = [
   { key: "designs", label: "Designs Available" },
 ];
 
+const MAX_CATALOG_PDF_BYTES = 4 * 1024 * 1024; // 4MB -- Netlify's synchronous function payload limit (~6MB) is hit sooner than that once base64-encoded (+33%) and JSON-wrapped
+
 function CatalogTab({ adminCode, content }) {
   const [resources, setResources] = useState((content && content.catalogResources) || {});
   const [busy, setBusy] = useState("");
@@ -620,23 +622,38 @@ function CatalogTab({ adminCode, content }) {
 
   const upload = async (key, file) => {
     if (!file) return;
-    setBusy(key);
     setError("");
+    if (file.size > MAX_CATALOG_PDF_BYTES) {
+      setError(`"${file.name}" is ${(file.size / 1024 / 1024).toFixed(1)}MB -- please use a PDF under 4MB.`);
+      return;
+    }
+    setBusy(key);
     try {
       const fileBase64 = await fileToDataUrl(file);
       const { url, fileName } = await api.adminUploadCatalogResource(adminCode, { key, fileName: file.name, fileBase64 });
       setResources((r) => ({ ...r, [key]: { url, fileName } }));
     } catch (err) {
-      setError(err.message || "Upload failed.");
+      // A bare "Request failed (400)" with no message of ours means the
+      // request was rejected before reaching our function at all (Netlify's
+      // own payload-size limit) -- the client-side check above should catch
+      // this first, but keep the message actionable in case it doesn't.
+      setError(err.message === "Request failed (400)" ? "Upload rejected -- the file may be too large. Try a PDF under 4MB." : err.message || "Upload failed.");
     } finally {
       setBusy("");
     }
   };
 
+  const remove = async (key) => {
+    const next = { ...resources };
+    delete next[key];
+    await api.adminSiteContent(adminCode, { resource: "catalogResources", action: "update", value: next });
+    setResources(next);
+  };
+
   return (
     <div>
       <h2>Catalog reference PDFs</h2>
-      <p className="text-muted">Upload or replace the PDF customers see on the Catalog page. Swap the file any time.</p>
+      <p className="text-muted">Upload or replace the PDF customers see on the Catalog page (max 4MB). Swap the file any time.</p>
       {error && <p style={{ color: "var(--color-accent-2-700)" }}>{error}</p>}
       <div style={{ display: "flex", flexDirection: "column", gap: 15, maxWidth: 480, marginTop: 15 }}>
         {RESOURCE_LABELS.map((r) => (
@@ -645,7 +662,11 @@ function CatalogTab({ adminCode, content }) {
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <input className="input" type="file" accept="application/pdf" onChange={(e) => upload(r.key, e.target.files[0])} disabled={busy === r.key} />
               {busy === r.key && <span className="text-muted" style={{ fontSize: 12 }}>Uploading…</span>}
-              {resources[r.key] && resources[r.key].url && <span className="tag tag-accent">{resources[r.key].fileName}</span>}
+              {resources[r.key] && resources[r.key].url && (
+                <span className="tag tag-accent" style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
+                  {resources[r.key].fileName} <DeleteLink label="×" onConfirm={() => remove(r.key)} />
+                </span>
+              )}
             </div>
           </div>
         ))}
