@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 const RESOURCE_LABELS = [
   { key: "threadColors", label: "Thread Colors" },
   { key: "fontOptions", label: "Font Options" },
@@ -5,37 +7,10 @@ const RESOURCE_LABELS = [
   { key: "designs", label: "Designs Available" },
 ];
 
-// The uploaded PDF is stored as a data: URL. Browsers block top-level
-// navigation straight to a data: URL from a target="_blank" link (a
-// phishing-prevention restriction), which is why clicking the link did
-// nothing. Converting it to a blob: URL isn't restricted the same way --
-// but the conversion is async, and a window.open() called after an await
-// no longer counts as a direct user gesture, so popup blockers silently
-// eat it too. Opening the blank tab synchronously *before* the await, then
-// navigating it once the blob is ready, keeps it inside the user gesture.
-// Deliberately NOT passing "noopener" here: per spec that makes window.open
-// return null instead of a window reference, which is exactly what's
-// needed below to navigate the tab once the blob is ready. Safe to omit
-// since the tab is only ever pointed at a same-origin blob: URL we just
-// created, never at third-party content.
-async function previewPdf(dataUrl) {
-  const tab = window.open("", "_blank");
-  try {
-    const res = await fetch(dataUrl);
-    const blob = await res.blob();
-    const blobUrl = URL.createObjectURL(blob);
-    if (tab) {
-      tab.location.href = blobUrl;
-      setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
-    }
-  } catch {
-    if (tab) tab.close();
-  }
-}
-
 export default function CatalogPage({ content }) {
   const resources = (content && content.catalogResources) || {};
   const gallery = (content && content.gallery) || [];
+  const [preview, setPreview] = useState(null); // { label, url }
 
   return (
     <section className="shop-section">
@@ -63,7 +38,7 @@ export default function CatalogPage({ content }) {
             <div key={r.key} className="card">
               <div className="card-title">{r.label}</div>
               {res && res.url ? (
-                <button type="button" className="btn btn-secondary" onClick={() => previewPdf(res.url)}>Preview PDF</button>
+                <button type="button" className="btn btn-secondary" onClick={() => setPreview({ label: r.label, url: res.url })}>Preview PDF</button>
               ) : (
                 <p className="text-muted" style={{ fontSize: 12 }}>Not uploaded yet</p>
               )}
@@ -71,6 +46,23 @@ export default function CatalogPage({ content }) {
           );
         })}
       </div>
+
+      {preview && (
+        // Rendered inline (an <iframe> on this same page) rather than opened
+        // as a new tab/window -- browser popup blockers can silently block
+        // window.open() even from a direct click (confirmed happening here),
+        // and there's no popup-blocker equivalent for an iframe already in
+        // the page, so this can't be blocked the same way.
+        <div className="dialog-backdrop" onClick={() => setPreview(null)}>
+          <div className="dialog" style={{ maxWidth: 900, width: "92vw", height: "88vh" }} onClick={(e) => e.stopPropagation()}>
+            <div className="dialog-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span>{preview.label}</span>
+              <button type="button" className="btn btn-secondary" onClick={() => setPreview(null)}>Close</button>
+            </div>
+            <iframe title={preview.label} src={preview.url} style={{ flex: 1, width: "100%", border: "none", borderRadius: "var(--radius-md)" }} />
+          </div>
+        </div>
+      )}
     </section>
   );
 }
