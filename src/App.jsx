@@ -558,6 +558,9 @@ export default function App(){
   const [editingProductKey,setEditingProductKey]=useState(null);
   const [editingProductIdx,setEditingProductIdx]=useState(null);
   const [editingProductData,setEditingProductData]=useState(null);
+  // Raw get-site-content response, passed down to ShopApp so it doesn't
+  // have to make its own duplicate fetch of the same endpoint.
+  const [rawSiteContent,setRawSiteContent]=useState(null);
 
   // ── Load public site content once, on mount ──
   useEffect(()=>{
@@ -572,6 +575,7 @@ export default function App(){
         setFonts(data.fonts||[]);
         setFontPackages(data.fontPackages||[]);
         setDesigns(data.designs||[]);
+        setRawSiteContent(data);
       }catch{
         // Fall back to hardcoded defaults if the API can't be reached.
       }
@@ -711,7 +715,7 @@ export default function App(){
   if(!ready) return(<><style>{`body{background:#ebe8e8;display:flex;align-items:center;justify-content:center;height:100vh;font-family:'Jost',sans-serif;color:#52805f;font-size:1rem;letter-spacing:.1em;}`}</style><div>Loading Shop 1104…</div></>);
 
   // ── General storefront (Home/Shop/Product/Cart/Checkout/Custom/Catalog/Contact/Client Portal/Admin) ──
-  if(GENERAL_SHOP_PAGES.has(page)) return <ShopApp page={page} nav={nav}/>;
+  if(GENERAL_SHOP_PAGES.has(page)) return <ShopApp page={page} nav={nav} initialContent={rawSiteContent}/>;
 
   // ── Sales & Pricing admin (separate login, manages pre-order sales/products) ──
   if(page==="salesadmin") return <SalesAdminPanel/>;

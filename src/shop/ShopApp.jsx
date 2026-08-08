@@ -31,9 +31,9 @@ const URL_SCREEN = { home: "home", shop: "shop", catalog: "catalog", custom: "cu
 
 const emptyOptions = { size: "", color: "", thread: "", placement: "", design: "", personalize: "", notes: "", addons: [], qty: 1 };
 
-export default function ShopApp({ page, nav }) {
+export default function ShopApp({ page, nav, initialContent }) {
   const [screen, setScreen] = useState(page === "clients" ? "portal" : page || "home");
-  const [content, setContent] = useState(null);
+  const [content, setContent] = useState(initialContent || null);
   const [products, setProducts] = useState(null);
   const [productsError, setProductsError] = useState("");
   const [selectedProductId, setSelectedProductId] = useState(null);
@@ -57,11 +57,14 @@ export default function ShopApp({ page, nav }) {
     [nav]
   );
 
-  // Load shared site content (categories, colors, threads, placements,
-  // reviews, shipping settings, catalog PDFs) once.
+  // App.jsx already fetches get-site-content once (it gates all rendering
+  // on that call) and hands us the result via initialContent -- only fetch
+  // it ourselves if that somehow didn't happen, so this endpoint isn't hit
+  // twice on every page load.
   useEffect(() => {
+    if (initialContent) return;
     api.getSiteContent().then(setContent).catch(() => setContent({}));
-  }, []);
+  }, [initialContent]);
 
   // Load the main-shop catalog once; portal products are loaded separately
   // by ClientPortal after a successful login.
