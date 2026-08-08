@@ -30,7 +30,7 @@ exports.handler = async (event) => {
 
   const { data: order, error } = await supabase
     .from("orders")
-    .select("id, customer_email, garments, status")
+    .select("id, customer_email, garments, status, shipping_cents, sale_id")
     .eq("id", orderId)
     .single();
 
@@ -42,17 +42,29 @@ exports.handler = async (event) => {
   }
 
   // Group garments by product so identical items become one line item
-  // with a quantity, rather than N separate lines.
+  // with a quantity, rather than N separate lines. `qty` is only present
+  // on general-shop orders (submit-general-order.cjs); preorder-campaign
+  // orders (submit-order.cjs) list one entry per unit, so it defaults to 1.
   const grouped = new Map();
   for (const g of order.garments) {
     const key = `${g.product_id}:${g.price_cents}`;
     if (!grouped.has(key)) {
       grouped.set(key, { name: g.product_name, unit_amount: g.price_cents, quantity: 0 });
     }
-    grouped.get(key).quantity += 1;
+    grouped.get(key).quantity += g.qty || 1;
   }
 
-  const siteUrl = process.env.URL || "http://localhost:8888";
+  // Built from the actual request the browser made, not Netlify's build-time
+  // URL/DEPLOY_PRIME_URL vars -- those aren't reliably visible to Functions
+  // at invocation time and process.env.URL always resolves to the
+  // PRODUCTION domain regardless of context, which was sending
+  // previewed/staged checkouts back to the live site after payment instead
+  // of the environment actually being tested. The Host header always
+  // matches whatever domain the request really came through.
+  const forwardedHost = event.headers["x-forwarded-host"] || event.headers.host;
+  const forwardedProto = event.headers["x-forwarded-proto"] || (forwardedHost && forwardedHost.startsWith("localhost") ? "http" : "https");
+  const siteUrl = forwardedHost ? `${forwardedProto}://${forwardedHost}` : process.env.URL || "http://localhost:8888";
+  const cancelPath = order.sale_id ? "/preorder?cancelled=true" : "/cart?cancelled=true";
 
   const taxRatePercent = Number(process.env.TAX_RATE_PERCENT || 0);
   const feeRatePercent = Number(process.env.PROCESSING_FEE_PERCENT || 0);
@@ -65,7 +77,7 @@ exports.handler = async (event) => {
       currency: "usd",
       product_data: {
         name: item.name,
-        description: "Shop 1104 pre-order. Shipping (if applicable) billed separately.",
+        description: "Shop 1104 — custom embroidery order.",
       },
       unit_amount: item.unit_amount,
     },
@@ -94,6 +106,17 @@ exports.handler = async (event) => {
     });
   }
 
+  if (order.shipping_cents > 0) {
+    lineItems.push({
+      price_data: {
+        currency: "usd",
+        product_data: { name: "Shipping" },
+        unit_amount: order.shipping_cents,
+      },
+      quantity: 1,
+    });
+  }
+
   try {
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
@@ -102,7 +125,7 @@ exports.handler = async (event) => {
       customer_email: order.customer_email,
       line_items: lineItems,
       success_url: `${siteUrl}/order-confirmation?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${siteUrl}/preorder?cancelled=true`,
+      cancel_url: `${siteUrl}${cancelPath}`,
       metadata: { orderId },
     });
 

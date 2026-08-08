@@ -5,7 +5,7 @@
 //
 // GET                                    -> list all portals (with products)
 // POST { action: "createPortal", name }
-// POST { action: "updatePortal", code, fields: { name, lockDate, stripeLink } }
+// POST { action: "updatePortal", code, fields: { name, lockDate, stripeLink, hidden } }
 // POST { action: "deletePortal", code }
 // POST { action: "createProduct", portalCode, fields: {...} }
 // POST { action: "updateProduct", id, fields: {...} }
@@ -61,6 +61,8 @@ exports.handler = async (event) => {
       name: p.name,
       lockDate: p.lock_date,
       stripeLink: p.stripe_link,
+      passwordEnabled: !!p.password_enabled,
+      hidden: !!p.hidden,
       products: (products || [])
         .filter((prod) => prod.portal_code === p.code)
         .map((prod) => ({
@@ -96,16 +98,24 @@ exports.handler = async (event) => {
 
   if (action === "createPortal") {
     if (!body.name) return { statusCode: 400, body: JSON.stringify({ error: "name is required." }) };
-    let code = genCode(body.name);
-    // Extremely unlikely collision, but guard anyway.
-    for (let i = 0; i < 5; i++) {
-      const { data: existing } = await supabase.from("client_portals").select("code").eq("code", code).maybeSingle();
-      if (!existing) break;
-      code = genCode(body.name);
+    if (!body.code) {
+      let code = genCode(body.name);
+      for (let i = 0; i < 5; i++) {
+        const { data: existing } = await supabase.from("client_portals").select("code").eq("code", code).maybeSingle();
+        if (!existing) break;
+        code = genCode(body.name);
+      }
+      body.code = code;
     }
+    const passwordEnabled = !!body.passwordEnabled;
     const { data, error } = await supabase
       .from("client_portals")
-      .insert({ code, name: body.name })
+      .insert({
+        code: body.code.trim().toUpperCase(),
+        name: body.name,
+        password_enabled: passwordEnabled,
+        password: passwordEnabled ? body.password || "" : null,
+      })
       .select()
       .single();
     if (error) return { statusCode: 500, body: JSON.stringify({ error: "Could not create portal." }) };
@@ -119,6 +129,9 @@ exports.handler = async (event) => {
     if (f.name) updates.name = f.name;
     if ("lockDate" in f) updates.lock_date = f.lockDate || null;
     if ("stripeLink" in f) updates.stripe_link = f.stripeLink || null;
+    if ("passwordEnabled" in f) updates.password_enabled = !!f.passwordEnabled;
+    if ("password" in f) updates.password = f.password || null;
+    if ("hidden" in f) updates.hidden = !!f.hidden;
     const { data, error } = await supabase
       .from("client_portals")
       .update(updates)

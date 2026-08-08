@@ -21,6 +21,10 @@ exports.handler = async (event) => {
       { data: fonts, error: fontsErr },
       { data: fontPackages, error: fontPackagesErr },
       { data: designs, error: designsErr },
+      { data: categories, error: categoriesErr },
+      { data: garmentColors, error: garmentColorsErr },
+      { data: placements, error: placementsErr },
+      { data: reviews, error: reviewsErr },
     ] = await Promise.all([
       supabase.from("site_content").select("key, value"),
       supabase.from("gallery_items").select("*").order("sort_order", { ascending: true }),
@@ -28,9 +32,15 @@ exports.handler = async (event) => {
       supabase.from("font_styles").select("*").order("sort_order", { ascending: true }),
       supabase.from("font_packages").select("*").order("sort_order", { ascending: true }),
       supabase.from("design_files").select("*").order("sort_order", { ascending: true }),
+      supabase.from("categories").select("*").order("sort_order", { ascending: true }),
+      supabase.from("garment_colors").select("*").order("sort_order", { ascending: true }),
+      supabase.from("placements").select("*").order("sort_order", { ascending: true }),
+      supabase.from("reviews").select("*").order("sort_order", { ascending: true }),
     ]);
 
-    const firstError = contentErr || galleryErr || threadsErr || fontsErr || fontPackagesErr || designsErr;
+    const firstError =
+      contentErr || galleryErr || threadsErr || fontsErr || fontPackagesErr || designsErr ||
+      categoriesErr || garmentColorsErr || placementsErr || reviewsErr;
     if (firstError) {
       console.error("Supabase error (get-site-content):", firstError);
       return { statusCode: 500, body: JSON.stringify({ error: "Could not load site content." }) };
@@ -74,6 +84,10 @@ exports.handler = async (event) => {
       }));
 
     const mapDesigns = (rows) => (rows || []).map((r) => ({ id: r.id, name: r.name, category: r.category, files: r.files }));
+    const mapCategories = (rows) => (rows || []).map((r) => ({ id: r.id, name: r.name, allowedColors: r.allowed_colors || [] }));
+    const mapGarmentColors = (rows) => (rows || []).map((r) => ({ id: r.id, name: r.name, hex: r.hex }));
+    const mapPlacements = (rows) => (rows || []).map((r) => ({ id: r.id, name: r.name }));
+    const mapReviews = (rows) => (rows || []).map((r) => ({ id: r.id, name: r.name, rating: r.rating, quote: r.quote }));
 
     return {
       statusCode: 200,
@@ -86,6 +100,20 @@ exports.handler = async (event) => {
         fonts: mapFonts(fonts),
         fontPackages: mapFontPackages(fontPackages),
         designs: mapDesigns(designs),
+        categories: mapCategories(categories),
+        garmentColors: mapGarmentColors(garmentColors),
+        placements: mapPlacements(placements),
+        reviews: mapReviews(reviews),
+        shippingSettings: contentMap.shippingSettings || { base: 0, perItem: 0, freeThreshold: 0 },
+        catalogResources: contentMap.catalogResources || {},
+        portalPreview: contentMap.portalPreview || {
+          businessName: "Acme Construction",
+          products: [
+            { name: "Team Polo", price: "32.00" },
+            { name: "Staff Cap", price: "22.00" },
+            { name: "Company Hoodie", price: "46.00" },
+          ],
+        },
       }),
     };
   } catch (err) {
