@@ -5,6 +5,14 @@ const SIZE_FILTERS = ["XS", "S", "M", "L", "XL", "2XL"];
 export default function Shop({ products, productsError, categories, onSelectProduct }) {
   const [activeCategories, setActiveCategories] = useState([]);
 
+  // Only offer a category as a filter if a product actually has it --
+  // otherwise checking it just leads to an empty result every time, and an
+  // admin-configured category with nothing in it yet shouldn't show at all.
+  const categoriesWithProducts = useMemo(() => {
+    const present = new Set((products || []).map((p) => p.category).filter(Boolean));
+    return categories.filter((cat) => present.has(cat.name));
+  }, [products, categories]);
+
   const filtered = useMemo(() => {
     if (activeCategories.length === 0) return products || [];
     return (products || []).filter((p) => activeCategories.includes(p.category));
@@ -17,16 +25,20 @@ export default function Shop({ products, productsError, categories, onSelectProd
   return (
     <section className="shop-section" style={{ display: "grid", gridTemplateColumns: "220px minmax(0,1fr)", gap: 30 }}>
       <aside>
-        <h5>Garment</h5>
-        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
-          {categories.map((cat) => (
-            <label key={cat.id} className="radio">
-              <input type="checkbox" checked={activeCategories.includes(cat.name)} onChange={() => toggleCategory(cat.name)} />
-              <span className="dot" style={{ borderRadius: "var(--radius-sm)" }} />
-              {cat.name}
-            </label>
-          ))}
-        </div>
+        {categoriesWithProducts.length > 0 && (
+          <>
+            <h5>Garment</h5>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
+              {categoriesWithProducts.map((cat) => (
+                <label key={cat.id} className="radio">
+                  <input type="checkbox" checked={activeCategories.includes(cat.name)} onChange={() => toggleCategory(cat.name)} />
+                  <span className="dot" style={{ borderRadius: "var(--radius-sm)" }} />
+                  {cat.name}
+                </label>
+              ))}
+            </div>
+          </>
+        )}
         <h5>Size</h5>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
           {SIZE_FILTERS.map((sz) => (
