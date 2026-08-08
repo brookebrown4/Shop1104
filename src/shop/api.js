@@ -93,10 +93,6 @@ export function adminPortals(adminCode, body) {
   return req("admin-portals", { method: "POST", headers: adminHeaders(adminCode), body: JSON.stringify(body) });
 }
 
-export function adminUploadCatalogResource(adminCode, body) {
-  return req("admin-upload-catalog-resource", { method: "POST", headers: adminHeaders(adminCode), body: JSON.stringify(body) });
-}
-
 export function adminListRequests(adminCode) {
   return req("admin-requests", { headers: adminHeaders(adminCode) });
 }

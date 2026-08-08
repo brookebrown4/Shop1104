@@ -5,15 +5,6 @@ const TABS = ["Products", "Requests", "Portals", "Orders", "Catalog", "Reviews",
 const SIZE_LIST = ["XS", "S", "M", "L", "XL", "2XL"];
 const IDLE_LOGOUT_MS = 5 * 60 * 1000;
 
-function fileToDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-
 function Modal({ title, onClose, children, actions }) {
   return (
     <div className="dialog-backdrop" onClick={onClose}>
@@ -613,31 +604,33 @@ const RESOURCE_LABELS = [
   { key: "designs", label: "Designs Available" },
 ];
 
-const MAX_CATALOG_PDF_BYTES = 4 * 1024 * 1024; // 4MB -- Netlify's synchronous function payload limit (~6MB) is hit sooner than that once base64-encoded (+33%) and JSON-wrapped
-
+// A file-upload flow here (browser -> Netlify function -> Supabase Storage)
+// kept hitting real friction: Netlify's payload size limit, a storage
+// bucket that has to be provisioned first, opaque failures when it isn't.
+// Pasting a share link (Google Drive, Dropbox, etc.) sidesteps all of that
+// -- no upload path, no size limit, no bucket to set up, and Google
+// Drive's own viewer already gives a working "preview in browser" link.
 function CatalogTab({ adminCode, content }) {
   const [resources, setResources] = useState((content && content.catalogResources) || {});
+  const [drafts, setDrafts] = useState(() => {
+    const d = {};
+    RESOURCE_LABELS.forEach((r) => { d[r.key] = (content && content.catalogResources && content.catalogResources[r.key] && content.catalogResources[r.key].url) || ""; });
+    return d;
+  });
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
 
-  const upload = async (key, file) => {
-    if (!file) return;
+  const save = async (key) => {
+    const url = drafts[key].trim();
+    if (!url) return;
     setError("");
-    if (file.size > MAX_CATALOG_PDF_BYTES) {
-      setError(`"${file.name}" is ${(file.size / 1024 / 1024).toFixed(1)}MB -- please use a PDF under 4MB.`);
-      return;
-    }
     setBusy(key);
     try {
-      const fileBase64 = await fileToDataUrl(file);
-      const { url, fileName } = await api.adminUploadCatalogResource(adminCode, { key, fileName: file.name, fileBase64 });
-      setResources((r) => ({ ...r, [key]: { url, fileName } }));
+      const next = { ...resources, [key]: { url, fileName: RESOURCE_LABELS.find((r) => r.key === key).label } };
+      await api.adminSiteContent(adminCode, { resource: "catalogResources", action: "update", value: next });
+      setResources(next);
     } catch (err) {
-      // A bare "Request failed (400)" with no message of ours means the
-      // request was rejected before reaching our function at all (Netlify's
-      // own payload-size limit) -- the client-side check above should catch
-      // this first, but keep the message actionable in case it doesn't.
-      setError(err.message === "Request failed (400)" ? "Upload rejected -- the file may be too large. Try a PDF under 4MB." : err.message || "Upload failed.");
+      setError(err.message || "Could not save that link.");
     } finally {
       setBusy("");
     }
@@ -648,25 +641,32 @@ function CatalogTab({ adminCode, content }) {
     delete next[key];
     await api.adminSiteContent(adminCode, { resource: "catalogResources", action: "update", value: next });
     setResources(next);
+    setDrafts((d) => ({ ...d, [key]: "" }));
   };
 
   return (
     <div>
       <h2>Catalog reference PDFs</h2>
-      <p className="text-muted">Upload or replace the PDF customers see on the Catalog page (max 4MB). Swap the file any time.</p>
+      <p className="text-muted">
+        Paste a link customers can view the PDF at (Google Drive share link, Dropbox, etc. — set the link to "Anyone with the link
+        can view"). Swap it any time.
+      </p>
       {error && <p style={{ color: "var(--color-accent-2-700)" }}>{error}</p>}
-      <div style={{ display: "flex", flexDirection: "column", gap: 15, maxWidth: 480, marginTop: 15 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 15, maxWidth: 560, marginTop: 15 }}>
         {RESOURCE_LABELS.map((r) => (
           <div className="field" key={r.key}>
             <label>{r.label}</label>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <input className="input" type="file" accept="application/pdf" onChange={(e) => upload(r.key, e.target.files[0])} disabled={busy === r.key} />
-              {busy === r.key && <span className="text-muted" style={{ fontSize: 12 }}>Uploading…</span>}
-              {resources[r.key] && resources[r.key].url && (
-                <span className="tag tag-accent" style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
-                  {resources[r.key].fileName} <DeleteLink label="×" onConfirm={() => remove(r.key)} />
-                </span>
-              )}
+              <input
+                className="input"
+                placeholder="https://drive.google.com/file/d/…/view"
+                value={drafts[r.key]}
+                onChange={(e) => setDrafts((d) => ({ ...d, [r.key]: e.target.value }))}
+              />
+              <button type="button" className="btn btn-secondary" onClick={() => save(r.key)} disabled={busy === r.key || !drafts[r.key].trim()}>
+                {busy === r.key ? "Saving…" : "Save"}
+              </button>
+              {resources[r.key] && resources[r.key].url && <DeleteLink label="Remove" onConfirm={() => remove(r.key)} />}
             </div>
           </div>
         ))}
