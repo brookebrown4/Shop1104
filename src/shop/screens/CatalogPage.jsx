@@ -35,7 +35,7 @@ export default function CatalogPage({ content }) {
             <div key={r.key} className="card">
               <div className="card-title">{r.label}</div>
               {res && res.url ? (
-                <a className="btn btn-secondary" href={res.url} download={res.fileName || undefined} target="_blank" rel="noreferrer">Download PDF</a>
+                <a className="btn btn-secondary" href={res.url} target="_blank" rel="noreferrer">Preview PDF</a>
               ) : (
                 <p className="text-muted" style={{ fontSize: 12 }}>Not uploaded yet</p>
               )}

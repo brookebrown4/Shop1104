@@ -14,6 +14,42 @@ function fileToDataUrl(file) {
   });
 }
 
+function Modal({ title, onClose, children, actions }) {
+  return (
+    <div className="dialog-backdrop" onClick={onClose}>
+      <div className="dialog" style={{ maxWidth: 560, maxHeight: "85vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+        <div className="dialog-title">{title}</div>
+        <div className="dialog-body">{children}</div>
+        <div className="dialog-actions">
+          {actions}
+          <button type="button" className="btn btn-secondary" onClick={onClose}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Two-click delete: click once to arm, click again (within a few seconds) to
+// actually delete. Avoids relying on window.confirm(), which silently
+// no-ops forever once a browser tab has the "prevent additional dialogs"
+// box checked -- which is what made Delete look completely broken.
+function DeleteLink({ onConfirm, label = "Delete" }) {
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    if (!armed) return;
+    const t = setTimeout(() => setArmed(false), 4000);
+    return () => clearTimeout(t);
+  }, [armed]);
+  if (armed) {
+    return (
+      <a href="#" style={{ color: "var(--color-accent-2-700)" }} onClick={(e) => { e.preventDefault(); setArmed(false); onConfirm(); }}>
+        Confirm?
+      </a>
+    );
+  }
+  return <a href="#" onClick={(e) => { e.preventDefault(); setArmed(true); }}>{label}</a>;
+}
+
 export default function Admin({ content, categories, garmentColors, threadColors, placements: placementList }) {
   const [adminCode, setAdminCode] = useState("");
   const [loginError, setLoginError] = useState("");
@@ -179,7 +215,6 @@ function ProductsTab({ adminCode, categories, garmentColors, threadColors, place
   };
 
   const remove = async (p) => {
-    if (!window.confirm(`Delete ${p.name}?`)) return;
     await api.adminSaveProduct(adminCode, { action: "delete", productId: p.id });
     load();
   };
@@ -300,7 +335,7 @@ function ProductsTab({ adminCode, categories, garmentColors, threadColors, place
               <td>${(p.price_cents / 100).toFixed(2)}</td>
               <td><label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer" }}><input type="checkbox" checked={p.hidden} onChange={(e) => toggleField(p, "hidden", e.target.checked)} />{p.hidden ? "Hidden" : "Visible"}</label></td>
               <td><button type="button" className={`btn ${p.sold_out ? "btn-secondary" : "btn-ghost"}`} style={{ padding: "4px 10px", fontSize: 12 }} onClick={() => toggleField(p, "soldOut", !p.sold_out)}>{p.sold_out ? "Mark in stock" : "Mark sold out"}</button></td>
-              <td><a href="#" onClick={(e) => { e.preventDefault(); startEdit(p); }}>Edit</a> <a href="#" onClick={(e) => { e.preventDefault(); remove(p); }} style={{ marginLeft: 8 }}>Delete</a></td>
+              <td><a href="#" onClick={(e) => { e.preventDefault(); startEdit(p); }}>Edit</a> <span style={{ marginLeft: 8 }}><DeleteLink onConfirm={() => remove(p)} /></span></td>
             </tr>
           ))}
         </tbody>
@@ -334,22 +369,68 @@ function ListEditor({ label, items, onChange, priceLabel }) {
 
 function RequestsTab({ adminCode }) {
   const [data, setData] = useState({ customRequests: [], contactMessages: [] });
+  const [openRequest, setOpenRequest] = useState(null);
+  const [openMessage, setOpenMessage] = useState(null);
   useEffect(() => { api.adminListRequests(adminCode).then(setData).catch(() => {}); }, [adminCode]);
+
+  const rowStyle = { cursor: "pointer" };
+
   return (
     <div>
       <h2>Custom order requests</h2>
       {data.customRequests.length === 0 ? <p className="text-muted">No custom order requests yet.</p> : (
         <table className="table">
           <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Garment</th><th>Qty</th><th>Need by</th></tr></thead>
-          <tbody>{data.customRequests.map((r) => <tr key={r.id}><td>{r.fullName}</td><td>{r.email}</td><td>{r.phone}</td><td>{r.garmentType}</td><td>{r.quantity}</td><td>{r.needBy}</td></tr>)}</tbody>
+          <tbody>
+            {data.customRequests.map((r) => (
+              <tr key={r.id} style={rowStyle} onClick={() => setOpenRequest(r)}>
+                <td>{r.fullName}</td><td>{r.email}</td><td>{r.phone}</td><td>{r.garmentType}</td><td>{r.quantity}</td><td>{r.needBy}</td>
+              </tr>
+            ))}
+          </tbody>
         </table>
       )}
       <h2 style={{ marginTop: 30 }}>Contact messages</h2>
       {data.contactMessages.length === 0 ? <p className="text-muted">No contact messages yet.</p> : (
         <table className="table">
           <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Order #</th><th>Message</th></tr></thead>
-          <tbody>{data.contactMessages.map((m) => <tr key={m.id}><td>{m.fullName}</td><td>{m.email}</td><td>{m.phone}</td><td>{m.orderNumber}</td><td>{m.message}</td></tr>)}</tbody>
+          <tbody>
+            {data.contactMessages.map((m) => (
+              <tr key={m.id} style={rowStyle} onClick={() => setOpenMessage(m)}>
+                <td>{m.fullName}</td><td>{m.email}</td><td>{m.phone}</td><td>{m.orderNumber}</td>
+                <td style={{ maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.message}</td>
+              </tr>
+            ))}
+          </tbody>
         </table>
+      )}
+
+      {openRequest && (
+        <Modal title={`Custom order request — ${openRequest.fullName}`} onClose={() => setOpenRequest(null)}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <div><strong>Email:</strong> {openRequest.email}</div>
+            <div><strong>Phone:</strong> {openRequest.phone}</div>
+            <div><strong>Address:</strong> {openRequest.address}</div>
+            <div><strong>Garment type:</strong> {openRequest.garmentType}</div>
+            <div><strong>Quantity:</strong> {openRequest.quantity}</div>
+            <div><strong>Need by:</strong> {openRequest.needBy}</div>
+            <div><strong>Has design:</strong> {openRequest.hasDesign === true ? "Yes" : openRequest.hasDesign === false ? "No" : "—"}</div>
+            <div><strong>Submitted:</strong> {new Date(openRequest.createdAt).toLocaleString()}</div>
+          </div>
+        </Modal>
+      )}
+
+      {openMessage && (
+        <Modal title={`Message — ${openMessage.fullName}`} onClose={() => setOpenMessage(null)}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <div><strong>Email:</strong> {openMessage.email}</div>
+            <div><strong>Phone:</strong> {openMessage.phone}</div>
+            <div><strong>Order #:</strong> {openMessage.orderNumber}</div>
+            <div><strong>Message:</strong></div>
+            <p style={{ whiteSpace: "pre-wrap" }}>{openMessage.message}</p>
+            <div><strong>Submitted:</strong> {new Date(openMessage.createdAt).toLocaleString()}</div>
+          </div>
+        </Modal>
       )}
     </div>
   );
@@ -401,37 +482,124 @@ function PortalsTab({ adminCode }) {
 
 const STATUS_TAG = { Paid: "tag-accent", paid: "tag-accent", Pending: "tag-accent-2", pending: "tag-accent-2", Invoiced: "tag-neutral", Refunded: "tag-outline" };
 
+function csvCell(v) {
+  const s = String(v ?? "");
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+function downloadCsv(filename, rows) {
+  const csv = rows.map((row) => row.map(csvCell).join(",")).join("\r\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 function OrdersTab({ adminCode }) {
   const [orders, setOrders] = useState([]);
+  const [selected, setSelected] = useState(() => new Set());
+  const [openOrder, setOpenOrder] = useState(null);
   const load = useCallback(() => { api.adminListOrders(adminCode).then((r) => setOrders(r.orders || [])).catch(() => {}); }, [adminCode]);
   useEffect(() => { load(); }, [load]);
 
   const setStatus = async (o, status) => { await api.adminOrders(adminCode, { action: "update", orderId: o.id, fields: { status } }); load(); };
-  const remove = async (o) => { if (!window.confirm(`Delete order ${o.shortId}?`)) return; await api.adminOrders(adminCode, { action: "delete", orderId: o.id }); load(); };
+  const remove = async (o) => {
+    await api.adminOrders(adminCode, { action: "delete", orderId: o.id });
+    setSelected((s) => { const next = new Set(s); next.delete(o.id); return next; });
+    load();
+  };
+
+  const toggleSelected = (id) => setSelected((s) => { const next = new Set(s); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+  const allSelected = orders.length > 0 && orders.every((o) => selected.has(o.id));
+  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(orders.map((o) => o.id)));
+
+  const exportCsv = () => {
+    const rows = selected.size > 0 ? orders.filter((o) => selected.has(o.id)) : orders;
+    downloadCsv(
+      `shop1104-orders-${new Date().toISOString().slice(0, 10)}.csv`,
+      [
+        ["Order", "Date", "Customer", "Email", "Phone", "Items", "Subtotal", "Shipping", "Total", "Status", "Fulfillment", "Store"],
+        ...rows.map((o) => [
+          o.shortId, o.date, o.customer, o.email, o.phone, o.items, o.subtotal, o.shipping, o.total, o.status, o.fulfillment, o.portalCode || "Main Shop",
+        ]),
+      ]
+    );
+  };
 
   return (
     <div>
-      <h2>Orders &amp; invoices</h2>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+        <h2>Orders &amp; invoices</h2>
+        <button type="button" className="btn btn-secondary" onClick={exportCsv} disabled={orders.length === 0}>
+          {selected.size > 0 ? `Export selected (${selected.size})` : "Export all"}
+        </button>
+      </div>
       <table className="table">
-        <thead><tr><th>Order</th><th>Customer</th><th>Items</th><th>Total</th><th>Status</th><th></th></tr></thead>
+        <thead>
+          <tr>
+            <th><input type="checkbox" checked={allSelected} onChange={toggleAll} /></th>
+            <th>Order</th><th>Customer</th><th>Items</th><th>Total</th><th>Status</th><th></th>
+          </tr>
+        </thead>
         <tbody>
           {orders.map((o) => (
             <tr key={o.id}>
-              <td>{o.shortId}</td>
-              <td>{o.customer}</td>
-              <td>{o.items}</td>
+              <td><input type="checkbox" checked={selected.has(o.id)} onChange={() => toggleSelected(o.id)} /></td>
+              <td style={{ cursor: "pointer" }} onClick={() => setOpenOrder(o)}>{o.shortId}</td>
+              <td style={{ cursor: "pointer" }} onClick={() => setOpenOrder(o)}>{o.customer}</td>
+              <td style={{ cursor: "pointer" }} onClick={() => setOpenOrder(o)}>{o.items}</td>
               <td>${o.total}</td>
               <td>
                 <select className="input" style={{ minHeight: 28, fontSize: 12, padding: "2px 6px" }} value={o.status} onChange={(e) => setStatus(o, e.target.value)}>
                   {["pending", "paid", "Invoiced", "Refunded"].map((s) => <option key={s} value={s}>{s}</option>)}
                 </select>
               </td>
-              <td><a href="#" onClick={(e) => { e.preventDefault(); remove(o); }}>Delete</a></td>
+              <td><DeleteLink onConfirm={() => remove(o)} /></td>
             </tr>
           ))}
         </tbody>
       </table>
       {orders.length === 0 && <p className="text-muted">No orders yet.</p>}
+
+      {openOrder && (
+        <Modal title={`Order ${openOrder.shortId}`} onClose={() => setOpenOrder(null)}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <div><strong>Customer:</strong> {openOrder.customer}</div>
+            <div><strong>Email:</strong> {openOrder.email}</div>
+            <div><strong>Phone:</strong> {openOrder.phone}</div>
+            <div><strong>Store:</strong> {openOrder.portalCode || "Main Shop"}</div>
+            <div><strong>Fulfillment:</strong> {openOrder.fulfillment}</div>
+            {openOrder.address && (
+              <div><strong>Address:</strong> {openOrder.address.street}, {openOrder.address.city}, {openOrder.address.state} {openOrder.address.zip}</div>
+            )}
+            {openOrder.notes && <div><strong>Notes:</strong> {openOrder.notes}</div>}
+            <div><strong>Placed:</strong> {new Date(openOrder.date).toLocaleString()}</div>
+            <div className="hr" />
+            <div><strong>Items</strong></div>
+            {(openOrder.garments || []).map((g, i) => (
+              <div key={i} className="card" style={{ fontSize: 13 }}>
+                <div className="card-title" style={{ fontSize: 14 }}>{g.qty || 1} × {g.product_name} — ${(g.price_cents / 100).toFixed(2)} each</div>
+                <div className="text-muted">
+                  {[g.size && `Size: ${g.size}`, g.color && `Color: ${g.color}`, g.thread && `Thread: ${g.thread}`, g.placement && `Placement: ${g.placement}`, g.design && `Design: ${g.design}`, g.addons && g.addons.length > 0 && `Add-ons: ${g.addons.join(", ")}`]
+                    .filter(Boolean)
+                    .join(" · ") || "No customization"}
+                </div>
+                {g.personalize && <div className="text-muted">Personalize: "{g.personalize}"</div>}
+                {g.notes && <div className="text-muted">Note: {g.notes}</div>}
+              </div>
+            ))}
+            <div className="hr" />
+            <div style={{ display: "flex", justifyContent: "space-between" }}><span>Subtotal</span><span>${openOrder.subtotal}</span></div>
+            <div style={{ display: "flex", justifyContent: "space-between" }}><span>Shipping</span><span>${openOrder.shipping}</span></div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontFamily: "var(--font-heading)" }}><span>Total</span><span>${openOrder.total}</span></div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

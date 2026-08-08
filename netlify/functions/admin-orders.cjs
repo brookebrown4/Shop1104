@@ -34,7 +34,7 @@ exports.handler = async (event) => {
   if (event.httpMethod === "GET") {
     const { data, error } = await supabase
       .from("orders")
-      .select("id, status, customer_name, customer_email, garments, amount_cents, shipping_cents, fulfillment, created_at, portal_code")
+      .select("id, status, customer_name, customer_email, customer_phone, garments, amount_cents, shipping_cents, fulfillment, address, notes, created_at, portal_code")
       .order("created_at", { ascending: false })
       .limit(200);
 
@@ -45,10 +45,17 @@ exports.handler = async (event) => {
       shortId: o.id.slice(0, 8).toUpperCase(),
       customer: o.customer_name,
       email: o.customer_email,
+      phone: o.customer_phone,
       items: summarizeItems(o.garments),
+      garments: o.garments || [],
+      subtotal: ((o.amount_cents || 0) / 100).toFixed(2),
+      shipping: ((o.shipping_cents || 0) / 100).toFixed(2),
       total: (((o.amount_cents || 0) + (o.shipping_cents || 0)) / 100).toFixed(2),
       status: o.status,
       date: o.created_at,
+      fulfillment: o.fulfillment,
+      address: o.address || null,
+      notes: o.notes || null,
       portalCode: o.portal_code || null,
     }));
     return { statusCode: 200, body: JSON.stringify({ orders }) };

@@ -61,6 +61,7 @@ exports.handler = async (event) => {
       name: p.name,
       lockDate: p.lock_date,
       stripeLink: p.stripe_link,
+      passwordEnabled: !!p.password_enabled,
       products: (products || [])
         .filter((prod) => prod.portal_code === p.code)
         .map((prod) => ({
